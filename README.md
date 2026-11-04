@@ -282,6 +282,26 @@ Go 1.27 or newer and make.
 
 `./bin/wherryd --version` prints the version stamped at build time.
 
+## Running it under systemd
+
+`deploy/systemd/wherryd.service` is the unit I deploy with. It expects the binary at
+`/usr/local/bin/wherryd`, reads `/etc/wherry/env` (see `wherry.env.example`), keeps its data
+in `/var/lib/wherry`, and needs `git` on the host. It follows Docker up and down, because
+stopping Docker takes the containers with it and only wherryd brings them back.
+
+It runs as root on purpose. Access to the Docker socket is already root-equivalent, so a
+separate user in the `docker` group would look safer without being safer. Instead the unit
+drops every capability except binding low ports, makes the filesystem read-only outside the
+data directory and a private `/tmp`, and blocks new namespaces.
+
+That also means the unit is Docker-only. The native runtime needs the capabilities,
+namespaces, and cgroup access this unit removes, so it is something I run by hand with
+`sudo -E ./bin/wherryd` on a test box, not under systemd.
+
+Each `v*` tag builds `linux/amd64` and `linux/arm64` tarballs with both binaries and the
+unit, and attaches them to a GitHub release. Tags with a hyphen, like `v0.1.0-rc1`, become
+pre-releases. `make dist` builds the same tarballs locally.
+
 ## Configuration
 
 Every setting is an environment variable prefixed `WHERRY_`. The full list with defaults is

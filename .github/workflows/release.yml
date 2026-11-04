@@ -1,0 +1,36 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: check tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          case "$TAG" in *[!A-Za-z0-9._+-]*) echo "bad tag: $TAG"; exit 1 ;; esac
+      - name: test
+        run: go test -race -count=1 ./...
+      - name: package
+        env:
+          TAG: ${{ github.ref_name }}
+        run: make dist VERSION="$TAG"
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          flags=
+          case "$TAG" in *-*) flags=--prerelease ;; esac
+          gh release create "$TAG" dist/* --verify-tag --generate-notes $flags

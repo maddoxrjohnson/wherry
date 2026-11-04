@@ -1,5 +1,6 @@
 /data/
 /bin/
+/dist/
 .env
 *.pem
 *_ed25519*
