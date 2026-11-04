@@ -302,6 +302,33 @@ Each `v*` tag builds `linux/amd64` and `linux/arm64` tarballs with both binaries
 unit, and attaches them to a GitHub release. Tags with a hyphen, like `v0.1.0-rc1`, become
 pre-releases. `make dist` builds the same tarballs locally.
 
+## Creating the server
+
+I build the whole box with `deploy/terraform/hetzner`: a server, an SSH key, a firewall, and a
+first boot that installs Docker and git, verifies a release against its checksums, and starts
+the unit. Port 22 is open only to the addresses in `admin_cidrs`.
+
+    export HCLOUD_TOKEN=...
+    cd deploy/terraform/hetzner
+    cp terraform.tfvars.example terraform.tfvars
+    terraform init
+    terraform apply
+    ssh root@<ip> cloud-init status --wait
+
+The last line matters. `terraform apply` finishes when the server exists, before first boot
+does, so only `cloud-init status` says whether the install worked. If SSH refuses the connection,
+the box is still booting, so try again. Otherwise a non-zero exit means the install failed:
+`/var/log/cloud-init-output.log` has the reason, or `journalctl -u wherryd` if the daemon would
+not start.
+
+`release_version` has to be a published release. First boot only happens once, so Terraform
+ignores later changes to anything it feeds, along with the image and SSH key, rather than
+replacing the server and losing its data disk. To retry a failed first boot, use
+`terraform apply -replace=hcloud_server.wherry`. To change the domain or email on a running box,
+edit `/etc/wherry/env` and restart the unit.
+
+The default is a CAX11, which is arm64; the release architecture follows the server type.
+
 ## Configuration
 
 Every setting is an environment variable prefixed `WHERRY_`. The full list with defaults is

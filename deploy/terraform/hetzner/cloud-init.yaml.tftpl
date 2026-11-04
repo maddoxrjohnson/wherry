@@ -1,0 +1,59 @@
+#cloud-config
+package_update: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+
+write_files:
+  - path: /etc/wherry/env
+    permissions: "0600"
+    content: |
+      WHERRY_DOMAIN=${domain}
+      WHERRY_HTTP_ADDR=:80
+      WHERRY_HTTPS_ADDR=:443
+      WHERRY_ACME_EMAIL=${acme_email}
+  - path: /root/install-wherry.sh
+    permissions: "0700"
+    content: |
+      #!/bin/sh
+      set -eu
+
+      fetch='-fsSL --retry 5 --retry-all-errors --retry-delay 5'
+      apt='-o Acquire::Retries=3 -o DPkg::Lock::Timeout=300'
+
+      install -m 0755 -d /etc/apt/keyrings
+      curl $fetch https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+      . /etc/os-release
+      echo "deb [signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $VERSION_CODENAME stable" \
+        > /etc/apt/sources.list.d/docker.list
+      # The lock timeout does not cover update, and apt-daily may hold its lock.
+      # If every try fails, the install below fails too and stops the script.
+      for try in 1 2 3 4 5 6; do
+        apt-get $apt update && break
+        sleep 10
+      done
+      apt-get $apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+
+      base=https://github.com/${release_repo}/releases/download/${release_version}
+      name=wherry_${release_version}_linux_${arch}
+      work=$(mktemp -d)
+      cd "$work"
+      curl $fetch -O "$base/$name.tar.gz"
+      curl $fetch -O "$base/SHA256SUMS"
+      sha256sum -c --ignore-missing SHA256SUMS
+      tar -xzf "$name.tar.gz"
+      install -m 0755 "$name/wherryd" "$name/wherry" /usr/local/bin/
+      install -m 0644 "$name/wherryd.service" /etc/systemd/system/
+      cd /
+      rm -rf "$work"
+
+      systemctl daemon-reload
+      systemctl enable --now wherryd
+
+      # enable returns as soon as the binary starts, so wait for the listeners.
+      # Otherwise a daemon that exits at once still reads as a good first boot.
+      curl -fsS --retry 30 --retry-delay 2 --retry-all-errors -o /dev/null http://127.0.0.1:9000/healthz
+
+runcmd:
+  - /root/install-wherry.sh
