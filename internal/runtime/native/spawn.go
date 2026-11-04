@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 	"golang.org/x/sys/unix"
 )
 

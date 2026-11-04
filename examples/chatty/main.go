@@ -1,6 +1,6 @@
 // A web server that talks. It prints a numbered line to stdout every
 // second and a complaint to stderr every tenth second, so log streaming
-// can be watched: `ashore logs -f chatty` and the dashboard should show
+// can be watched: `wherry logs -f chatty` and the dashboard should show
 // each line within a moment of it being printed.
 package main
 

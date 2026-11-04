@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/lines"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/lines"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // Line is one line an instance printed, stamped when the collector read it.
@@ -34,7 +34,7 @@ const (
 	StreamStderr = "stderr"
 	// StreamSystem marks lines the daemon itself adds to a reader's stream,
 	// such as the notice that lines were dropped.
-	StreamSystem = "ashore"
+	StreamSystem = "wherry"
 )
 
 const (

@@ -18,10 +18,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
-	"github.com/maddoxrjohnson/ashore/internal/gitserver"
-	"github.com/maddoxrjohnson/ashore/internal/lines"
-	"github.com/maddoxrjohnson/ashore/internal/serve"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/gitserver"
+	"github.com/maddoxrjohnson/wherry/internal/lines"
+	"github.com/maddoxrjohnson/wherry/internal/serve"
 )
 
 // Deployer is what the daemon does with a push the hook has handed over.
@@ -59,7 +59,7 @@ type Server struct {
 
 // socketPath is where the daemon listens for its hooks.
 func socketPath(dataDir string) string {
-	return filepath.Join(dataDir, "ashore.sock")
+	return filepath.Join(dataDir, "wherry.sock")
 }
 
 // NewServer prepares the server for a data directory that already exists.

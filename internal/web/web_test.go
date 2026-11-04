@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -106,7 +106,7 @@ func TestLoginFlow(t *testing.T) {
 	if cookie == nil || !cookie.HttpOnly || cookie.SameSite != http.SameSiteLaxMode || cookie.Value == "" {
 		t.Fatalf("session cookie: %+v", cookie)
 	}
-	if code, body, _ := f.get(t, "/"); code != http.StatusOK || !strings.Contains(body, "No apps yet") || !strings.Contains(body, "ashored test") {
+	if code, body, _ := f.get(t, "/"); code != http.StatusOK || !strings.Contains(body, "No apps yet") || !strings.Contains(body, "wherryd test") {
 		t.Fatalf("apps page: %d\n%s", code, body)
 	}
 	if code, _, resp := f.get(t, "/login"); code != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
@@ -133,7 +133,7 @@ func TestAppPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	const sha = "abc1234567890abc1234567890abc1234567890a"
-	v1, _ := f.store.CreateRelease(ctx, app.ID, store.NewRelease{Image: "ashore/hello:abc1234", GitSHA: sha, Note: "push abc1234"})
+	v1, _ := f.store.CreateRelease(ctx, app.ID, store.NewRelease{Image: "wherry/hello:abc1234", GitSHA: sha, Note: "push abc1234"})
 	if err := f.store.SetLive(ctx, app.ID, v1.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +159,10 @@ func TestAppPages(t *testing.T) {
 
 	code, body, _ = f.get(t, "/apps/hello")
 	for _, want := range []string{
-		"<h1>hello</h1>", "git remote add ashore ssh://ashore@127.0.0.1:2222/hello",
+		"<h1>hello</h1>", "git remote add wherry ssh://wherry@127.0.0.1:2222/hello",
 		"<td>0123456789ab</td>", `class="state-running"`, "<td>2</td>", "<td>1m30s</td>",
 		`class="status-live"`, `class="status-building"`, "push def5678",
-		`<a href="/apps/hello/builds/` + sha + `">abc1234</a>`, "ashore/hello:abc1234",
+		`<a href="/apps/hello/builds/` + sha + `">abc1234</a>`, "wherry/hello:abc1234",
 		`<code>A</code>`, `data-value="s3cr3t"`, `class="reveal"`, `<pre id="logs" data-app="hello">`,
 	} {
 		if code != http.StatusOK || !strings.Contains(body, want) {

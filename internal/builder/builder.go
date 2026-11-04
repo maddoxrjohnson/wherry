@@ -20,7 +20,7 @@ import (
 	"github.com/moby/moby/api/types/jsonstream"
 	"github.com/moby/moby/client"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
 )
 
 // Docker is the slice of the Engine API the builder uses. *client.Client
@@ -47,7 +47,7 @@ type Builder struct {
 	timeout time.Duration
 	log     *slog.Logger
 	// Labels are added to every image built, after the builder's own
-	// ashore.app and ashore.sha. Tests use it to mark images ashore.test=1.
+	// wherry.app and wherry.sha. Tests use it to mark images wherry.test=1.
 	Labels map[string]string
 }
 
@@ -62,7 +62,7 @@ func New(d Docker, dataDir string, timeout time.Duration, log *slog.Logger) *Bui
 
 // Tag is the image tag a build of app at sha produces.
 func Tag(app, sha string) string {
-	return "ashore/" + app + ":" + gitcmd.ShortSHA(sha)
+	return "wherry/" + app + ":" + gitcmd.ShortSHA(sha)
 }
 
 var errTimeout = errors.New("build timed out")
@@ -113,7 +113,7 @@ func (b *Builder) build(ctx context.Context, job Job, tag string, w io.Writer) e
 		_ = os.Remove(tar.Name())
 	}()
 
-	labels := map[string]string{"ashore.app": job.App, "ashore.sha": job.SHA}
+	labels := map[string]string{"wherry.app": job.App, "wherry.sha": job.SHA}
 	for k, v := range b.Labels {
 		labels[k] = v
 	}
@@ -142,7 +142,7 @@ func (b *Builder) build(ctx context.Context, job Job, tag string, w io.Writer) e
 // wants. A file rather than a pipe so that a failing git is reported as
 // such, not as a truncated upload, and the caller removes it.
 func archive(ctx context.Context, job Job) (*os.File, error) {
-	f, err := os.CreateTemp("", "ashore-context-*.tar")
+	f, err := os.CreateTemp("", "wherry-context-*.tar")
 	if err != nil {
 		return nil, err
 	}

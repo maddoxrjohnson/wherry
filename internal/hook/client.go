@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
 )
 
 // defaultBranch is the only ref a push may update. Anything else is refused
@@ -27,12 +27,12 @@ const dialTimeout = 5 * time.Second
 // it without a real git or a real daemon.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string) int {
 	if len(args) != 1 || args[0] != "pre-receive" {
-		complain(stderr, "usage: ashored hook pre-receive")
+		complain(stderr, "usage: wherryd hook pre-receive")
 		return 2
 	}
-	sock, nonce := getenv("ASHORE_SOCK"), getenv("ASHORE_NONCE")
+	sock, nonce := getenv("WHERRY_SOCK"), getenv("WHERRY_NONCE")
 	if sock == "" || nonce == "" {
-		complain(stderr, "not started by the daemon (ASHORE_SOCK or ASHORE_NONCE unset)")
+		complain(stderr, "not started by the daemon (WHERRY_SOCK or WHERRY_NONCE unset)")
 		return 1
 	}
 	sha, err := parseUpdates(stdin, defaultBranch)
@@ -41,7 +41,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 		return 1
 	}
 	req := Request{
-		App:        getenv("ASHORE_APP"),
+		App:        getenv("WHERRY_APP"),
 		SHA:        sha,
 		Quarantine: getenv("GIT_QUARANTINE_PATH"),
 		Nonce:      nonce,
@@ -53,10 +53,10 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(s
 	return code
 }
 
-// complain writes one "ashore: ..." line for the user; git forwards the hook's
+// complain writes one "wherry: ..." line for the user; git forwards the hook's
 // stderr to them like its stdout.
 func complain(w io.Writer, format string, args ...any) {
-	_, _ = fmt.Fprintf(w, "ashore: "+format+"\n", args...)
+	_, _ = fmt.Fprintf(w, "wherry: "+format+"\n", args...)
 }
 
 // parseUpdates reads git's "<old> <new> <ref>" lines and returns the new

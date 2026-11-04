@@ -19,11 +19,11 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // These tests talk to a real Docker daemon and skip without one. Every
-// container and image they create carries ashore.test=1.
+// container and image they create carries wherry.test=1.
 
 func dockerClient(t *testing.T) *client.Client {
 	t.Helper()
@@ -48,7 +48,7 @@ const testDockerfile = `FROM golang:1.27-alpine
 CMD ["sh", "-c", "if [ -n \"$EXIT\" ]; then echo bye; exit $EXIT; fi; echo \"out $GREETING\"; echo err >&2; exec nc -lk -p \"$PORT\" -e echo pong"]
 `
 
-const testImage = "ashore/runtime-test:latest"
+const testImage = "wherry/runtime-test:latest"
 
 func buildTestImage(t *testing.T, cli *client.Client) string {
 	t.Helper()
@@ -61,7 +61,7 @@ func buildTestImage(t *testing.T, cli *client.Client) string {
 	ctx := context.Background()
 	res, err := cli.ImageBuild(ctx, &ctxTar, client.ImageBuildOptions{
 		Tags:        []string{testImage},
-		Labels:      map[string]string{"ashore.test": "1"},
+		Labels:      map[string]string{"wherry.test": "1"},
 		Remove:      true,
 		ForceRemove: true,
 		Version:     build.BuilderV1,
@@ -98,7 +98,7 @@ func testSpec(t *testing.T, image string, env map[string]string) runtime.Spec {
 		App: "rttest", Release: "v1", Image: image, Env: env,
 		HostPort: port, ContainerPort: 8080,
 		Memory: 64 << 20, CPU: 0.5,
-		Labels: map[string]string{"ashore.test": "1"},
+		Labels: map[string]string{"wherry.test": "1"},
 	}
 }
 

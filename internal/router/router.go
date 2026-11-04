@@ -27,7 +27,7 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
-	"github.com/maddoxrjohnson/ashore/internal/serve"
+	"github.com/maddoxrjohnson/wherry/internal/serve"
 )
 
 const (

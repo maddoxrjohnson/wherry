@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 	"golang.org/x/sys/unix"
 )
 

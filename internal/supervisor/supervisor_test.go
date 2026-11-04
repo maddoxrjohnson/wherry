@@ -19,12 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/builder"
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/router"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/builder"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/router"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 const sha = "abc1234567890abc1234567890abc1234567890a"
@@ -294,7 +294,7 @@ func newFixture(t *testing.T, cfg Config) *fixture {
 	t.Cleanup(func() { _ = f.logs.Close() })
 	f.sup = New(Deps{Store: st, Builder: f.builder, Runtime: f.runtime, Router: f.router, Logs: f.logs, Log: log}, cfg)
 	f.sup.clock = f.clock
-	// No repository exists here; a push sees no ashore.toml unless a test
+	// No repository exists here; a push sees no wherry.toml unless a test
 	// calls withManifest.
 	f.sup.readManifest = func(context.Context, string, string, string) ([]byte, bool, error) { return nil, false, nil }
 	ctx, cancel := context.WithCancel(context.Background())
@@ -358,12 +358,12 @@ func TestDeployHappyPath(t *testing.T) {
 	if addr != "127.0.0.1:"+strconv.Itoa(spec.HostPort) {
 		t.Errorf("route %s, instance port %d", addr, spec.HostPort)
 	}
-	if spec.Image != "ashore/hello:abc1234" || spec.Release != "v1" || spec.ContainerPort != 8080 || spec.Memory != 256<<20 {
+	if spec.Image != "wherry/hello:abc1234" || spec.Release != "v1" || spec.ContainerPort != 8080 || spec.Memory != 256<<20 {
 		t.Errorf("spec = %+v", spec)
 	}
 	app, _ := f.store.GetApp(context.Background(), "hello")
 	rel, err := f.store.LiveRelease(context.Background(), app.ID)
-	if err != nil || rel.Version != 1 || rel.Status != store.StatusLive || rel.GitSHA != sha || rel.Note != "push abc1234" || rel.Image != "ashore/hello:abc1234" {
+	if err != nil || rel.Version != 1 || rel.Status != store.StatusLive || rel.GitSHA != sha || rel.Note != "push abc1234" || rel.Image != "wherry/hello:abc1234" {
 		t.Errorf("live release = %+v, %v", rel, err)
 	}
 	if len(f.runtime.stoppedIDs()) != 0 {
@@ -481,7 +481,7 @@ func TestReleaseIsBuildingDuringBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 	rels, _ = f.store.ListReleases(context.Background(), app.ID)
-	if len(rels) != 1 || rels[0].Status != store.StatusLive || rels[0].Image != "ashore/hello:abc1234" {
+	if len(rels) != 1 || rels[0].Status != store.StatusLive || rels[0].Image != "wherry/hello:abc1234" {
 		t.Errorf("releases after the build = %+v, want the same row live with its image", rels)
 	}
 }
@@ -798,7 +798,7 @@ func TestRedeployRunsLiveImageWithNewConfig(t *testing.T) {
 	if f.builder.maxSeen != 1 {
 		t.Errorf("%d builds ran; a redeploy must not build", f.builder.maxSeen)
 	}
-	if len(f.runtime.started) != 2 || f.runtime.started[1].Image != "ashore/hello:abc1234" || f.runtime.started[1].Env["GREETING"] != "hi" || f.runtime.started[1].Release != "v2" {
+	if len(f.runtime.started) != 2 || f.runtime.started[1].Image != "wherry/hello:abc1234" || f.runtime.started[1].Env["GREETING"] != "hi" || f.runtime.started[1].Release != "v2" {
 		t.Errorf("second instance = %+v", f.runtime.started)
 	}
 	if got := f.waitStopped(t, 1); len(got) != 1 || got[0] != "inst1" {
@@ -1214,7 +1214,7 @@ func TestReconcile(t *testing.T) {
 		t.Helper()
 		var rel store.Release
 		for v := 1; v <= version; v++ {
-			r, err := st.CreateRelease(ctx, app.ID, store.NewRelease{Image: fmt.Sprintf("ashore/%s:%d", app.Name, v), ManifestJSON: `{"process":{"grace":"3s"}}`})
+			r, err := st.CreateRelease(ctx, app.ID, store.NewRelease{Image: fmt.Sprintf("wherry/%s:%d", app.Name, v), ManifestJSON: `{"process":{"grace":"3s"}}`})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1289,7 +1289,7 @@ func TestReconcile(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if len(f.runtime.started) != 1 || f.runtime.started[0].App != "api" || f.runtime.started[0].Image != "ashore/api:1" {
+	if len(f.runtime.started) != 1 || f.runtime.started[0].App != "api" || f.runtime.started[0].Image != "wherry/api:1" {
 		t.Errorf("started %+v, want one instance of api v1", f.runtime.started)
 	}
 	if s, _ := f.sup.Status("api"); s.State != StateRunning || s.Restarts != 1 {
@@ -1333,7 +1333,7 @@ func TestStatusBeforeAnything(t *testing.T) {
 	}
 }
 
-// withManifest makes every push see this ashore.toml.
+// withManifest makes every push see this wherry.toml.
 func (f *fixture) withManifest(toml string) {
 	f.sup.readManifest = func(context.Context, string, string, string) ([]byte, bool, error) {
 		return []byte(toml), true, nil
@@ -1356,7 +1356,7 @@ func TestManifestShapesTheInstance(t *testing.T) {
 		t.Fatalf("deploy: %v\n%s", err, out)
 	}
 	for _, want := range []string{
-		"-----> ashore.toml: health GET /healthz (timeout 5s), memory 128m, cpu 0.5, grace 3s\n",
+		"-----> wherry.toml: health GET /healthz (timeout 5s), memory 128m, cpu 0.5, grace 3s\n",
 		"-----> waiting for v1 to answer GET /healthz on port 8080\n",
 	} {
 		if !strings.Contains(out, want) {
@@ -1400,7 +1400,7 @@ func TestNoManifestMeansDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "ashore.toml") {
+	if strings.Contains(out, "wherry.toml") {
 		t.Errorf("no manifest, but the output mentions one:\n%s", out)
 	}
 	app, _ := f.store.GetApp(context.Background(), "hello")
@@ -1423,7 +1423,7 @@ func TestBadManifestRejectsPushWithoutARelease(t *testing.T) {
 	f := newFixture(t, Config{})
 	f.withManifest("[health]\npath = \"healthz\"\n")
 	_, err := f.deploy(context.Background(), "hello")
-	if err == nil || !strings.Contains(err.Error(), "ashore.toml: health.path") {
+	if err == nil || !strings.Contains(err.Error(), "wherry.toml: health.path") {
 		t.Fatalf("err = %v", err)
 	}
 	app, _ := f.store.GetApp(context.Background(), "hello")

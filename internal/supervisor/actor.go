@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // Crash handling: an instance that exits on its own is restarted after

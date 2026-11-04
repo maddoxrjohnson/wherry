@@ -10,8 +10,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/maddoxrjohnson/ashore/internal/sse"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/sse"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // getConfig answers with the app's config vars as one JSON object.

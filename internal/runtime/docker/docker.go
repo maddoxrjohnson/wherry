@@ -22,7 +22,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // Docker is the slice of the Engine API the runtime uses. *client.Client
@@ -118,7 +118,7 @@ func (r *Runtime) Start(ctx context.Context, s runtime.Spec) (runtime.Instance, 
 	}, nil
 }
 
-// containerName is ashore-<app>-<release>-<8 hex>, readable in docker ps.
+// containerName is wherry-<app>-<release>-<8 hex>, readable in docker ps.
 // The random part keeps a restart of the same release from colliding with
 // a container that has not been removed yet.
 func containerName(s runtime.Spec) (string, error) {
@@ -126,7 +126,7 @@ func containerName(s runtime.Spec) (string, error) {
 	if _, err := rand.Read(b); err != nil {
 		return "", err
 	}
-	return "ashore-" + s.App + "-" + s.Release + "-" + hex.EncodeToString(b), nil
+	return "wherry-" + s.App + "-" + s.Release + "-" + hex.EncodeToString(b), nil
 }
 
 // environ turns env into KEY=value lines in a stable order and sets PORT.
@@ -196,7 +196,7 @@ func (r *Runtime) Logs(ctx context.Context, id string, since time.Time, stdout, 
 	return nil
 }
 
-// List finds ashore's containers by label, including exited ones, which
+// List finds wherry's containers by label, including exited ones, which
 // reconcile has to remove. StartedAt is the container's creation time:
 // Start creates and starts in one call, so the two are milliseconds apart,
 // and List avoids one inspect request per container.

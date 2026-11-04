@@ -11,7 +11,7 @@ import (
 // writes land in regular files, which is enough to check the knobs.
 func TestCgroupFiles(t *testing.T) {
 	parent := t.TempDir()
-	c := &cgroups{root: filepath.Join(parent, "ashore")}
+	c := &cgroups{root: filepath.Join(parent, "wherry")}
 	if err := c.setup(); err != nil {
 		t.Fatal(err)
 	}

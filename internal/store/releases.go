@@ -35,7 +35,7 @@ const (
 // Release is one immutable (image, config) pair of an app, numbered per app
 // from v1. Image is empty while the release is building. ConfigJSON is the
 // config vars as a JSON object of strings, frozen when the release is made;
-// ManifestJSON is the effective ashore.toml the same way ({} before
+// ManifestJSON is the effective wherry.toml the same way ({} before
 // manifests existed, which the manifest package reads as the defaults).
 type Release struct {
 	ID           int64

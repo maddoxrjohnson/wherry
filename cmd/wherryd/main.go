@@ -1,4 +1,4 @@
-// Command ashored is the ashore daemon: it receives git pushes over SSH,
+// Command wherryd is the wherry daemon: it receives git pushes over SSH,
 // builds and runs them, and serves them by hostname. It is also, under
 // other names, its own pre-receive hook and its own container init.
 package main
@@ -12,28 +12,28 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/maddoxrjohnson/ashore/internal/config"
-	"github.com/maddoxrjohnson/ashore/internal/daemon"
-	"github.com/maddoxrjohnson/ashore/internal/hook"
-	"github.com/maddoxrjohnson/ashore/internal/runtime/native"
+	"github.com/maddoxrjohnson/wherry/internal/config"
+	"github.com/maddoxrjohnson/wherry/internal/daemon"
+	"github.com/maddoxrjohnson/wherry/internal/hook"
+	"github.com/maddoxrjohnson/wherry/internal/runtime/native"
 )
 
 var version = "dev"
 
 func main() {
-	// "ashored hook ..." is the pre-receive hook git runs. It has its own exit
+	// "wherryd hook ..." is the pre-receive hook git runs. It has its own exit
 	// codes and talks to the user itself, so it never goes through run.
 	if len(os.Args) > 1 && os.Args[1] == "hook" {
 		os.Exit(hook.Run(os.Args[2:], os.Stdin, os.Stdout, os.Stderr, os.Getenv))
 	}
-	// "ashored runtime-init" is the native runtime's container init: the
+	// "wherryd runtime-init" is the native runtime's container init: the
 	// daemon re-executed into new namespaces, which builds the container's
 	// filesystem and execs the app.
 	if len(os.Args) > 1 && os.Args[1] == "runtime-init" {
 		os.Exit(native.Init(os.Args[2:]))
 	}
 	if err := run(); err != nil {
-		fmt.Fprintln(os.Stderr, "ashored:", err)
+		fmt.Fprintln(os.Stderr, "wherryd:", err)
 		os.Exit(1)
 	}
 }
@@ -42,7 +42,7 @@ func run() error {
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 	if *showVersion {
-		fmt.Println("ashored", version)
+		fmt.Println("wherryd", version)
 		return nil
 	}
 	cfg, err := config.Load()
@@ -50,7 +50,7 @@ func run() error {
 		return err
 	}
 	if flag.NArg() > 0 {
-		return fmt.Errorf("unexpected arguments %q; the ashore command talks to the daemon", flag.Args())
+		return fmt.Errorf("unexpected arguments %q; the wherry command talks to the daemon", flag.Args())
 	}
 	log := cfg.Logger(os.Stderr)
 	slog.SetDefault(log)

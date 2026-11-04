@@ -14,7 +14,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 func TestAppsLifecycle(t *testing.T) {
@@ -25,11 +25,11 @@ func TestAppsLifecycle(t *testing.T) {
 	ctx := context.Background()
 
 	apps, err := f.client.Apps(ctx)
-	if err != nil || len(apps) != 1 || apps[0].Name != "hello" || apps[0].Live != "" || apps[0].Remote != "ssh://ashore@127.0.0.1:2222/hello" {
+	if err != nil || len(apps) != 1 || apps[0].Name != "hello" || apps[0].Live != "" || apps[0].Remote != "ssh://wherry@127.0.0.1:2222/hello" {
 		t.Fatalf("apps = %+v, %v", apps, err)
 	}
 	created, err := f.client.CreateApp(ctx, "api")
-	if err != nil || created.Name != "api" || created.Host != "api.localhost" || created.Remote != "ssh://ashore@127.0.0.1:2222/api" {
+	if err != nil || created.Name != "api" || created.Host != "api.localhost" || created.Remote != "ssh://wherry@127.0.0.1:2222/api" {
 		t.Fatalf("create = %+v, %v", created, err)
 	}
 	if _, err := os.Stat(filepath.Join(f.dataDir, "repos", "api.git", "HEAD")); err != nil {
@@ -85,7 +85,7 @@ func TestReleasesEndpoints(t *testing.T) {
 	}
 	r1, _ := f.store.CreateRelease(ctx, f.app.ID, store.NewRelease{GitSHA: "1111111111111111111111111111111111111111", Note: "push 1111111"})
 	_ = f.store.MarkFailed(ctx, r1.ID)
-	r2, _ := f.store.CreateRelease(ctx, f.app.ID, store.NewRelease{Image: "ashore/hello:2222222", GitSHA: "2222222222222222222222222222222222222222",
+	r2, _ := f.store.CreateRelease(ctx, f.app.ID, store.NewRelease{Image: "wherry/hello:2222222", GitSHA: "2222222222222222222222222222222222222222",
 		ConfigJSON: `{"GREETING":"hi"}`, ManifestJSON: `{"health":{"path":"/healthz"}}`, Note: "push 2222222"})
 	_ = f.store.SetLive(ctx, f.app.ID, r2.ID)
 
@@ -97,7 +97,7 @@ func TestReleasesEndpoints(t *testing.T) {
 		t.Errorf("releases = %+v", rels)
 	}
 	v2, err := f.client.Release(ctx, "hello", "v2")
-	if err != nil || v2.Image != "ashore/hello:2222222" || v2.Commit != r2.GitSHA || v2.Config["GREETING"] != "hi" || string(v2.Manifest) != `{"health":{"path":"/healthz"}}` || v2.Note != "push 2222222" {
+	if err != nil || v2.Image != "wherry/hello:2222222" || v2.Commit != r2.GitSHA || v2.Config["GREETING"] != "hi" || string(v2.Manifest) != `{"health":{"path":"/healthz"}}` || v2.Note != "push 2222222" {
 		t.Errorf("v2 = %+v, %v", v2, err)
 	}
 	if v1, _ := f.client.Release(ctx, "hello", "v1"); string(v1.Manifest) != "{}" || len(v1.Config) != 0 {

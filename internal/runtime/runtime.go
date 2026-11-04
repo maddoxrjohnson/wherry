@@ -1,11 +1,11 @@
-// Package runtime defines what ashore needs from whatever runs an app's
+// Package runtime defines what wherry needs from whatever runs an app's
 // containers: start one from an image, stop it, wait for it to exit, read
 // its output, and find the ones already running after a daemon restart.
 // internal/runtime/docker implements it on the Docker Engine API and
 // internal/runtime/native with namespaces and cgroups directly.
 //
 // The package shares its name with the standard library's runtime. Nothing
-// in ashore needs both in one file; if that changes, alias one of them.
+// in wherry needs both in one file; if that changes, alias one of them.
 package runtime
 
 import (
@@ -35,7 +35,7 @@ type Spec struct {
 	CPU           float64 // CPUs, e.g. 0.5; 0 means no limit
 	Pids          int64   // process limit; 0 means DefaultPids
 	// Labels are added to the instance after the runtime's own. Tests use
-	// them to mark what they create with ashore.test=1.
+	// them to mark what they create with wherry.test=1.
 	Labels map[string]string
 }
 
@@ -66,11 +66,11 @@ func (s Spec) AllLabels() map[string]string {
 const DefaultPids = 256
 
 // Labels every runtime puts on the instances it creates. List finds
-// ashore's instances by LabelApp; the rest of the host's containers are
+// wherry's instances by LabelApp; the rest of the host's containers are
 // none of its business.
 const (
-	LabelApp     = "ashore.app"
-	LabelRelease = "ashore.release"
+	LabelApp     = "wherry.app"
+	LabelRelease = "wherry.release"
 )
 
 // Instance is one started container.

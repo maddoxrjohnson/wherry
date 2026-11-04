@@ -16,7 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 // Metrics holds every series the daemon exports. Create it with New.
@@ -36,21 +36,21 @@ type Metrics struct {
 }
 
 // New registers the series. version is the daemon's, rt the configured
-// runtime name; both end up as labels on ashore_build_info.
+// runtime name; both end up as labels on wherry_build_info.
 func New(version, rt string) *Metrics {
 	m := &Metrics{reg: prometheus.NewRegistry()}
 	f := registrar{reg: m.reg}
-	m.httpRequests = f.counter("ashore_http_requests_total", "Requests the router proxied, by app and response status.", "app", "status")
-	m.httpDuration = f.histogram("ashore_http_request_duration_seconds", "Time from a request's arrival at the router to its last byte.", prometheus.DefBuckets, "app")
-	m.upstreamErrors = f.counter("ashore_http_upstream_errors_total", "Requests the app's instance could not answer (502s).", "app")
-	m.deploys = f.counter("ashore_deploys_total", "Deploys by app and result.", "app", "result")
-	m.deployDuration = f.histogram("ashore_deploy_duration_seconds", "Time spent in each deploy stage.",
+	m.httpRequests = f.counter("wherry_http_requests_total", "Requests the router proxied, by app and response status.", "app", "status")
+	m.httpDuration = f.histogram("wherry_http_request_duration_seconds", "Time from a request's arrival at the router to its last byte.", prometheus.DefBuckets, "app")
+	m.upstreamErrors = f.counter("wherry_http_upstream_errors_total", "Requests the app's instance could not answer (502s).", "app")
+	m.deploys = f.counter("wherry_deploys_total", "Deploys by app and result.", "app", "result")
+	m.deployDuration = f.histogram("wherry_deploy_duration_seconds", "Time spent in each deploy stage.",
 		[]float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300, 600}, "stage")
-	m.instances = f.gauge("ashore_instances", "Instances by app and state; one state per app is 1.", "app", "status")
-	m.restarts = f.counter("ashore_instance_restarts_total", "Automatic restarts after an instance exited on its own.", "app")
-	m.logLines = f.counter("ashore_log_lines_total", "Log lines collected.", "app")
-	m.logDropped = f.counter("ashore_log_lines_dropped_total", "Log lines a slow subscriber did not get.", "app")
-	info := f.gauge("ashore_build_info", "The running daemon; always 1.", "version", "go", "runtime")
+	m.instances = f.gauge("wherry_instances", "Instances by app and state; one state per app is 1.", "app", "status")
+	m.restarts = f.counter("wherry_instance_restarts_total", "Automatic restarts after an instance exited on its own.", "app")
+	m.logLines = f.counter("wherry_log_lines_total", "Log lines collected.", "app")
+	m.logDropped = f.counter("wherry_log_lines_dropped_total", "Log lines a slow subscriber did not get.", "app")
+	info := f.gauge("wherry_build_info", "The running daemon; always 1.", "version", "go", "runtime")
 	info.WithLabelValues(version, runtime.Version(), rt).Set(1)
 	m.reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return m

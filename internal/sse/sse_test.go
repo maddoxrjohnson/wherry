@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maddoxrjohnson/ashore/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
 )
 
 func TestFrames(t *testing.T) {

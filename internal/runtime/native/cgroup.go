@@ -12,11 +12,11 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // cgroups manages one cgroup v2 directory per instance under root, such
-// as /sys/fs/cgroup/ashore/<id>. The files inside are the knobs: memory.max,
+// as /sys/fs/cgroup/wherry/<id>. The files inside are the knobs: memory.max,
 // cpu.max, pids.max. The child is placed in its cgroup by the kernel at
 // clone time (CLONE_INTO_CGROUP via SysProcAttr.CgroupFD), so the limits
 // hold from its first instruction and no process ever has to be moved.

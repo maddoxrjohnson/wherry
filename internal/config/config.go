@@ -1,4 +1,4 @@
-// Package config reads the daemon's settings from ASHORE_* environment
+// Package config reads the daemon's settings from WHERRY_* environment
 // variables, with defaults for everything and validation that names the
 // variable at fault.
 package config
@@ -26,7 +26,7 @@ const (
 	LogFormatText = "text"
 )
 
-// Config holds every ASHORE_* setting. Loaded once at startup, read-only after.
+// Config holds every WHERRY_* setting. Loaded once at startup, read-only after.
 type Config struct {
 	DataDir          string
 	Domain           string
@@ -49,7 +49,7 @@ type Config struct {
 	LogFormat        string // LogFormatJSON or LogFormatText
 }
 
-// Default returns the settings used when no ASHORE_* variable is set.
+// Default returns the settings used when no WHERRY_* variable is set.
 func Default() Config {
 	return Config{
 		DataDir:          "./data",
@@ -59,7 +59,7 @@ func Default() Config {
 		SSHHostKey:       filepath.Join("./data", hostKeyFile),
 		InternalAddr:     "127.0.0.1:9000",
 		Runtime:          RuntimeDocker,
-		CgroupRoot:       "/sys/fs/cgroup/ashore",
+		CgroupRoot:       "/sys/fs/cgroup/wherry",
 		BuildConcurrency: 2,
 		BuildTimeout:     10 * time.Minute,
 		HealthTimeout:    30 * time.Second,
@@ -81,7 +81,7 @@ func (c Config) Logger(w io.Writer) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, opts))
 }
 
-// Load reads ASHORE_* from the process environment.
+// Load reads WHERRY_* from the process environment.
 func Load() (Config, error) {
 	return load(os.Getenv)
 }
@@ -90,74 +90,74 @@ func Load() (Config, error) {
 // process environment. An empty value is treated as unset.
 func load(getenv func(string) string) (Config, error) {
 	c := Default()
-	if v := getenv("ASHORE_DATA_DIR"); v != "" {
+	if v := getenv("WHERRY_DATA_DIR"); v != "" {
 		c.DataDir = v
 	}
-	if v := getenv("ASHORE_DOMAIN"); v != "" {
+	if v := getenv("WHERRY_DOMAIN"); v != "" {
 		c.Domain = v
 	}
-	if v := getenv("ASHORE_HTTP_ADDR"); v != "" {
+	if v := getenv("WHERRY_HTTP_ADDR"); v != "" {
 		c.HTTPAddr = v
 	}
-	if v := getenv("ASHORE_HTTPS_ADDR"); v != "" {
+	if v := getenv("WHERRY_HTTPS_ADDR"); v != "" {
 		c.HTTPSAddr = v
 	}
-	if v := getenv("ASHORE_ACME_EMAIL"); v != "" {
+	if v := getenv("WHERRY_ACME_EMAIL"); v != "" {
 		c.ACMEEmail = v
 	}
-	if v := getenv("ASHORE_SSH_ADDR"); v != "" {
+	if v := getenv("WHERRY_SSH_ADDR"); v != "" {
 		c.SSHAddr = v
 	}
 	// The host key follows DataDir unless set explicitly, so DataDir must be read first.
-	if v := getenv("ASHORE_SSH_HOST_KEY"); v != "" {
+	if v := getenv("WHERRY_SSH_HOST_KEY"); v != "" {
 		c.SSHHostKey = v
 	} else {
 		c.SSHHostKey = filepath.Join(c.DataDir, hostKeyFile)
 	}
-	if v := getenv("ASHORE_INTERNAL_ADDR"); v != "" {
+	if v := getenv("WHERRY_INTERNAL_ADDR"); v != "" {
 		c.InternalAddr = v
 	}
-	if v := getenv("ASHORE_RUNTIME"); v != "" {
+	if v := getenv("WHERRY_RUNTIME"); v != "" {
 		c.Runtime = v
 	}
-	if v := getenv("ASHORE_CGROUP_ROOT"); v != "" {
+	if v := getenv("WHERRY_CGROUP_ROOT"); v != "" {
 		c.CgroupRoot = v
 	}
-	if v := getenv("ASHORE_DOCKER_HOST"); v != "" {
+	if v := getenv("WHERRY_DOCKER_HOST"); v != "" {
 		c.DockerHost = v
 	}
-	if v := getenv("ASHORE_LOG_FORMAT"); v != "" {
+	if v := getenv("WHERRY_LOG_FORMAT"); v != "" {
 		c.LogFormat = v
 	}
 
 	var err error
-	c.BuildConcurrency, err = lookupInt(getenv, "ASHORE_BUILD_CONCURRENCY", c.BuildConcurrency)
+	c.BuildConcurrency, err = lookupInt(getenv, "WHERRY_BUILD_CONCURRENCY", c.BuildConcurrency)
 	if err != nil {
 		return Config{}, err
 	}
-	c.RateLimitRPS, err = lookupInt(getenv, "ASHORE_RATE_LIMIT_RPS", c.RateLimitRPS)
+	c.RateLimitRPS, err = lookupInt(getenv, "WHERRY_RATE_LIMIT_RPS", c.RateLimitRPS)
 	if err != nil {
 		return Config{}, err
 	}
-	c.BuildTimeout, err = lookupDuration(getenv, "ASHORE_BUILD_TIMEOUT", c.BuildTimeout)
+	c.BuildTimeout, err = lookupDuration(getenv, "WHERRY_BUILD_TIMEOUT", c.BuildTimeout)
 	if err != nil {
 		return Config{}, err
 	}
-	c.HealthTimeout, err = lookupDuration(getenv, "ASHORE_HEALTH_TIMEOUT", c.HealthTimeout)
+	c.HealthTimeout, err = lookupDuration(getenv, "WHERRY_HEALTH_TIMEOUT", c.HealthTimeout)
 	if err != nil {
 		return Config{}, err
 	}
-	c.DrainGrace, err = lookupDuration(getenv, "ASHORE_DRAIN_GRACE", c.DrainGrace)
+	c.DrainGrace, err = lookupDuration(getenv, "WHERRY_DRAIN_GRACE", c.DrainGrace)
 	if err != nil {
 		return Config{}, err
 	}
-	c.StopGrace, err = lookupDuration(getenv, "ASHORE_STOP_GRACE", c.StopGrace)
+	c.StopGrace, err = lookupDuration(getenv, "WHERRY_STOP_GRACE", c.StopGrace)
 	if err != nil {
 		return Config{}, err
 	}
-	if v := getenv("ASHORE_LOG_LEVEL"); v != "" {
+	if v := getenv("WHERRY_LOG_LEVEL"); v != "" {
 		if err := c.LogLevel.UnmarshalText([]byte(v)); err != nil {
-			return Config{}, fmt.Errorf("ASHORE_LOG_LEVEL: %w", err)
+			return Config{}, fmt.Errorf("WHERRY_LOG_LEVEL: %w", err)
 		}
 	}
 	if err := c.validate(); err != nil {
@@ -171,58 +171,58 @@ func load(getenv func(string) string) (Config, error) {
 // without reading this file.
 func (c Config) validate() error {
 	if c.DataDir == "" {
-		return errors.New("ASHORE_DATA_DIR: must not be empty")
+		return errors.New("WHERRY_DATA_DIR: must not be empty")
 	}
 	if c.Domain == "" {
-		return errors.New("ASHORE_DOMAIN: must not be empty")
+		return errors.New("WHERRY_DOMAIN: must not be empty")
 	}
-	if err := checkAddr("ASHORE_HTTP_ADDR", c.HTTPAddr); err != nil {
+	if err := checkAddr("WHERRY_HTTP_ADDR", c.HTTPAddr); err != nil {
 		return err
 	}
-	if err := checkAddr("ASHORE_SSH_ADDR", c.SSHAddr); err != nil {
+	if err := checkAddr("WHERRY_SSH_ADDR", c.SSHAddr); err != nil {
 		return err
 	}
-	if err := checkAddr("ASHORE_INTERNAL_ADDR", c.InternalAddr); err != nil {
+	if err := checkAddr("WHERRY_INTERNAL_ADDR", c.InternalAddr); err != nil {
 		return err
 	}
 	if c.HTTPSAddr != "" {
-		if err := checkAddr("ASHORE_HTTPS_ADDR", c.HTTPSAddr); err != nil {
+		if err := checkAddr("WHERRY_HTTPS_ADDR", c.HTTPSAddr); err != nil {
 			return err
 		}
 		if c.ACMEEmail == "" {
-			return errors.New("ASHORE_ACME_EMAIL: required when ASHORE_HTTPS_ADDR is set")
+			return errors.New("WHERRY_ACME_EMAIL: required when WHERRY_HTTPS_ADDR is set")
 		}
 	}
 	switch c.Runtime {
 	case RuntimeDocker, RuntimeNative:
 	default:
-		return fmt.Errorf("ASHORE_RUNTIME: %q is not %s or %s", c.Runtime, RuntimeDocker, RuntimeNative)
+		return fmt.Errorf("WHERRY_RUNTIME: %q is not %s or %s", c.Runtime, RuntimeDocker, RuntimeNative)
 	}
 	if !filepath.IsAbs(c.CgroupRoot) {
-		return fmt.Errorf("ASHORE_CGROUP_ROOT: %q is not an absolute path", c.CgroupRoot)
+		return fmt.Errorf("WHERRY_CGROUP_ROOT: %q is not an absolute path", c.CgroupRoot)
 	}
 	if c.BuildConcurrency < 1 {
-		return fmt.Errorf("ASHORE_BUILD_CONCURRENCY: %d is less than 1", c.BuildConcurrency)
+		return fmt.Errorf("WHERRY_BUILD_CONCURRENCY: %d is less than 1", c.BuildConcurrency)
 	}
 	if c.BuildTimeout <= 0 {
-		return fmt.Errorf("ASHORE_BUILD_TIMEOUT: %v is not positive", c.BuildTimeout)
+		return fmt.Errorf("WHERRY_BUILD_TIMEOUT: %v is not positive", c.BuildTimeout)
 	}
 	if c.HealthTimeout <= 0 {
-		return fmt.Errorf("ASHORE_HEALTH_TIMEOUT: %v is not positive", c.HealthTimeout)
+		return fmt.Errorf("WHERRY_HEALTH_TIMEOUT: %v is not positive", c.HealthTimeout)
 	}
 	if c.DrainGrace <= 0 {
-		return fmt.Errorf("ASHORE_DRAIN_GRACE: %v is not positive", c.DrainGrace)
+		return fmt.Errorf("WHERRY_DRAIN_GRACE: %v is not positive", c.DrainGrace)
 	}
 	if c.StopGrace <= 0 {
-		return fmt.Errorf("ASHORE_STOP_GRACE: %v is not positive", c.StopGrace)
+		return fmt.Errorf("WHERRY_STOP_GRACE: %v is not positive", c.StopGrace)
 	}
 	if c.RateLimitRPS < 0 {
-		return fmt.Errorf("ASHORE_RATE_LIMIT_RPS: %d is negative", c.RateLimitRPS)
+		return fmt.Errorf("WHERRY_RATE_LIMIT_RPS: %d is negative", c.RateLimitRPS)
 	}
 	switch c.LogFormat {
 	case LogFormatJSON, LogFormatText:
 	default:
-		return fmt.Errorf("ASHORE_LOG_FORMAT: %q is not %s or %s", c.LogFormat, LogFormatJSON, LogFormatText)
+		return fmt.Errorf("WHERRY_LOG_FORMAT: %q is not %s or %s", c.LogFormat, LogFormatJSON, LogFormatText)
 	}
 	return nil
 }

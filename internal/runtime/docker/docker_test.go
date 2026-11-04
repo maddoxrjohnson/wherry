@@ -19,7 +19,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // fakeDocker records requests and answers with canned results. The zero
@@ -103,11 +103,11 @@ func (f *fakeDocker) ContainerList(_ context.Context, o client.ContainerListOpti
 
 func spec() runtime.Spec {
 	return runtime.Spec{
-		App: "hello", Release: "v3", Image: "ashore/hello:abc1234",
+		App: "hello", Release: "v3", Image: "wherry/hello:abc1234",
 		Env:      map[string]string{"B": "2", "A": "1", "PORT": "9999"},
 		HostPort: 41234, ContainerPort: 8080,
 		Memory: 256 << 20, CPU: 0.5,
-		Labels: map[string]string{"ashore.test": "1", runtime.LabelApp: "spoofed"},
+		Labels: map[string]string{"wherry.test": "1", runtime.LabelApp: "spoofed"},
 	}
 }
 
@@ -124,16 +124,16 @@ func TestStartCreatesLimitedLoopbackContainer(t *testing.T) {
 	}
 
 	o := f.create
-	if !strings.HasPrefix(o.Name, "ashore-hello-v3-") || len(o.Name) != len("ashore-hello-v3-")+8 {
+	if !strings.HasPrefix(o.Name, "wherry-hello-v3-") || len(o.Name) != len("wherry-hello-v3-")+8 {
 		t.Errorf("name = %q", o.Name)
 	}
-	if o.Config.Image != "ashore/hello:abc1234" {
+	if o.Config.Image != "wherry/hello:abc1234" {
 		t.Errorf("image = %q", o.Config.Image)
 	}
 	if want := []string{"A=1", "B=2", "PORT=8080"}; !slices.Equal(o.Config.Env, want) {
 		t.Errorf("env = %q, want %q (sorted, PORT forced to the container port)", o.Config.Env, want)
 	}
-	want := map[string]string{"ashore.test": "1", runtime.LabelApp: "hello", runtime.LabelRelease: "v3"}
+	want := map[string]string{"wherry.test": "1", runtime.LabelApp: "hello", runtime.LabelRelease: "v3"}
 	if len(o.Config.Labels) != len(want) {
 		t.Errorf("labels = %v, want %v", o.Config.Labels, want)
 	}

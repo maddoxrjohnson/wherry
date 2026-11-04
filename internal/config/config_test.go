@@ -20,49 +20,49 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestHostKeyFollowsDataDir(t *testing.T) {
-	env := map[string]string{"ASHORE_DATA_DIR": "/var/lib/ashore"}
+	env := map[string]string{"WHERRY_DATA_DIR": "/var/lib/wherry"}
 	got, err := load(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := "/var/lib/ashore/host_ed25519"; got.SSHHostKey != want {
+	if want := "/var/lib/wherry/host_ed25519"; got.SSHHostKey != want {
 		t.Errorf("SSHHostKey = %q, want %q", got.SSHHostKey, want)
 	}
 }
 
 func TestOverrides(t *testing.T) {
 	env := map[string]string{
-		"ASHORE_DATA_DIR":          "/srv/ashore",
-		"ASHORE_DOMAIN":            "example.test",
-		"ASHORE_HTTP_ADDR":         ":80",
-		"ASHORE_HTTPS_ADDR":        ":443",
-		"ASHORE_ACME_EMAIL":        "ops@example.test",
-		"ASHORE_SSH_ADDR":          ":22",
-		"ASHORE_SSH_HOST_KEY":      "/etc/ashore/key",
-		"ASHORE_INTERNAL_ADDR":     "127.0.0.1:9001",
-		"ASHORE_RUNTIME":           "native",
-		"ASHORE_CGROUP_ROOT":       "/sys/fs/cgroup/system.slice/ashored.service/instances",
-		"ASHORE_DOCKER_HOST":       "unix:///run/docker.sock",
-		"ASHORE_BUILD_CONCURRENCY": "4",
-		"ASHORE_BUILD_TIMEOUT":     "20m",
-		"ASHORE_HEALTH_TIMEOUT":    "1m",
-		"ASHORE_DRAIN_GRACE":       "2s",
-		"ASHORE_STOP_GRACE":        "15s",
-		"ASHORE_RATE_LIMIT_RPS":    "0",
-		"ASHORE_LOG_LEVEL":         "debug",
-		"ASHORE_LOG_FORMAT":        "text",
+		"WHERRY_DATA_DIR":          "/srv/wherry",
+		"WHERRY_DOMAIN":            "example.test",
+		"WHERRY_HTTP_ADDR":         ":80",
+		"WHERRY_HTTPS_ADDR":        ":443",
+		"WHERRY_ACME_EMAIL":        "ops@example.test",
+		"WHERRY_SSH_ADDR":          ":22",
+		"WHERRY_SSH_HOST_KEY":      "/etc/wherry/key",
+		"WHERRY_INTERNAL_ADDR":     "127.0.0.1:9001",
+		"WHERRY_RUNTIME":           "native",
+		"WHERRY_CGROUP_ROOT":       "/sys/fs/cgroup/system.slice/wherryd.service/instances",
+		"WHERRY_DOCKER_HOST":       "unix:///run/docker.sock",
+		"WHERRY_BUILD_CONCURRENCY": "4",
+		"WHERRY_BUILD_TIMEOUT":     "20m",
+		"WHERRY_HEALTH_TIMEOUT":    "1m",
+		"WHERRY_DRAIN_GRACE":       "2s",
+		"WHERRY_STOP_GRACE":        "15s",
+		"WHERRY_RATE_LIMIT_RPS":    "0",
+		"WHERRY_LOG_LEVEL":         "debug",
+		"WHERRY_LOG_FORMAT":        "text",
 	}
 	want := Config{
-		DataDir:          "/srv/ashore",
+		DataDir:          "/srv/wherry",
 		Domain:           "example.test",
 		HTTPAddr:         ":80",
 		HTTPSAddr:        ":443",
 		ACMEEmail:        "ops@example.test",
 		SSHAddr:          ":22",
-		SSHHostKey:       "/etc/ashore/key",
+		SSHHostKey:       "/etc/wherry/key",
 		InternalAddr:     "127.0.0.1:9001",
 		Runtime:          RuntimeNative,
-		CgroupRoot:       "/sys/fs/cgroup/system.slice/ashored.service/instances",
+		CgroupRoot:       "/sys/fs/cgroup/system.slice/wherryd.service/instances",
 		DockerHost:       "unix:///run/docker.sock",
 		BuildConcurrency: 4,
 		BuildTimeout:     20 * time.Minute,
@@ -88,27 +88,27 @@ func TestInvalid(t *testing.T) {
 		env     map[string]string
 		wantVar string
 	}{
-		{"duration", map[string]string{"ASHORE_BUILD_TIMEOUT": "10 minutes"}, "ASHORE_BUILD_TIMEOUT"},
-		{"int", map[string]string{"ASHORE_BUILD_CONCURRENCY": "two"}, "ASHORE_BUILD_CONCURRENCY"},
-		{"addr without port", map[string]string{"ASHORE_HTTP_ADDR": "8080"}, "ASHORE_HTTP_ADDR"},
-		{"addr with empty port", map[string]string{"ASHORE_SSH_ADDR": "localhost:"}, "ASHORE_SSH_ADDR"},
-		{"concurrency zero", map[string]string{"ASHORE_BUILD_CONCURRENCY": "0"}, "ASHORE_BUILD_CONCURRENCY"},
-		{"negative rps", map[string]string{"ASHORE_RATE_LIMIT_RPS": "-1"}, "ASHORE_RATE_LIMIT_RPS"},
-		{"negative duration", map[string]string{"ASHORE_STOP_GRACE": "-5s"}, "ASHORE_STOP_GRACE"},
-		{"runtime", map[string]string{"ASHORE_RUNTIME": "podman"}, "ASHORE_RUNTIME"},
-		{"cgroup root", map[string]string{"ASHORE_CGROUP_ROOT": "relative/path"}, "ASHORE_CGROUP_ROOT"},
-		{"log level", map[string]string{"ASHORE_LOG_LEVEL": "loud"}, "ASHORE_LOG_LEVEL"},
-		{"log format", map[string]string{"ASHORE_LOG_FORMAT": "yaml"}, "ASHORE_LOG_FORMAT"},
-		{"https without email", map[string]string{"ASHORE_HTTPS_ADDR": ":443"}, "ASHORE_ACME_EMAIL"},
-		{"https addr", map[string]string{"ASHORE_HTTPS_ADDR": "443", "ASHORE_ACME_EMAIL": "a@b.c"}, "ASHORE_HTTPS_ADDR"},
-		{"internal addr", map[string]string{"ASHORE_INTERNAL_ADDR": "9000"}, "ASHORE_INTERNAL_ADDR"},
-		{"rps not int", map[string]string{"ASHORE_RATE_LIMIT_RPS": "many"}, "ASHORE_RATE_LIMIT_RPS"},
-		{"health not duration", map[string]string{"ASHORE_HEALTH_TIMEOUT": "1 hour"}, "ASHORE_HEALTH_TIMEOUT"},
-		{"drain not duration", map[string]string{"ASHORE_DRAIN_GRACE": "soon"}, "ASHORE_DRAIN_GRACE"},
-		{"stop not duration", map[string]string{"ASHORE_STOP_GRACE": "later"}, "ASHORE_STOP_GRACE"},
-		{"build timeout zero", map[string]string{"ASHORE_BUILD_TIMEOUT": "0"}, "ASHORE_BUILD_TIMEOUT"},
-		{"health negative", map[string]string{"ASHORE_HEALTH_TIMEOUT": "-30s"}, "ASHORE_HEALTH_TIMEOUT"},
-		{"drain zero", map[string]string{"ASHORE_DRAIN_GRACE": "0s"}, "ASHORE_DRAIN_GRACE"},
+		{"duration", map[string]string{"WHERRY_BUILD_TIMEOUT": "10 minutes"}, "WHERRY_BUILD_TIMEOUT"},
+		{"int", map[string]string{"WHERRY_BUILD_CONCURRENCY": "two"}, "WHERRY_BUILD_CONCURRENCY"},
+		{"addr without port", map[string]string{"WHERRY_HTTP_ADDR": "8080"}, "WHERRY_HTTP_ADDR"},
+		{"addr with empty port", map[string]string{"WHERRY_SSH_ADDR": "localhost:"}, "WHERRY_SSH_ADDR"},
+		{"concurrency zero", map[string]string{"WHERRY_BUILD_CONCURRENCY": "0"}, "WHERRY_BUILD_CONCURRENCY"},
+		{"negative rps", map[string]string{"WHERRY_RATE_LIMIT_RPS": "-1"}, "WHERRY_RATE_LIMIT_RPS"},
+		{"negative duration", map[string]string{"WHERRY_STOP_GRACE": "-5s"}, "WHERRY_STOP_GRACE"},
+		{"runtime", map[string]string{"WHERRY_RUNTIME": "podman"}, "WHERRY_RUNTIME"},
+		{"cgroup root", map[string]string{"WHERRY_CGROUP_ROOT": "relative/path"}, "WHERRY_CGROUP_ROOT"},
+		{"log level", map[string]string{"WHERRY_LOG_LEVEL": "loud"}, "WHERRY_LOG_LEVEL"},
+		{"log format", map[string]string{"WHERRY_LOG_FORMAT": "yaml"}, "WHERRY_LOG_FORMAT"},
+		{"https without email", map[string]string{"WHERRY_HTTPS_ADDR": ":443"}, "WHERRY_ACME_EMAIL"},
+		{"https addr", map[string]string{"WHERRY_HTTPS_ADDR": "443", "WHERRY_ACME_EMAIL": "a@b.c"}, "WHERRY_HTTPS_ADDR"},
+		{"internal addr", map[string]string{"WHERRY_INTERNAL_ADDR": "9000"}, "WHERRY_INTERNAL_ADDR"},
+		{"rps not int", map[string]string{"WHERRY_RATE_LIMIT_RPS": "many"}, "WHERRY_RATE_LIMIT_RPS"},
+		{"health not duration", map[string]string{"WHERRY_HEALTH_TIMEOUT": "1 hour"}, "WHERRY_HEALTH_TIMEOUT"},
+		{"drain not duration", map[string]string{"WHERRY_DRAIN_GRACE": "soon"}, "WHERRY_DRAIN_GRACE"},
+		{"stop not duration", map[string]string{"WHERRY_STOP_GRACE": "later"}, "WHERRY_STOP_GRACE"},
+		{"build timeout zero", map[string]string{"WHERRY_BUILD_TIMEOUT": "0"}, "WHERRY_BUILD_TIMEOUT"},
+		{"health negative", map[string]string{"WHERRY_HEALTH_TIMEOUT": "-30s"}, "WHERRY_HEALTH_TIMEOUT"},
+		{"drain zero", map[string]string{"WHERRY_DRAIN_GRACE": "0s"}, "WHERRY_DRAIN_GRACE"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestInvalid(t *testing.T) {
 // Load reads the real process environment; t.Setenv restores the variable
 // after the test and forbids t.Parallel for that reason.
 func TestLoadReadsProcessEnv(t *testing.T) {
-	t.Setenv("ASHORE_DOMAIN", "example.test")
+	t.Setenv("WHERRY_DOMAIN", "example.test")
 	got, err := Load()
 	if err != nil {
 		t.Fatal(err)
@@ -144,8 +144,8 @@ func TestValidateHandBuilt(t *testing.T) {
 		mutate  func(*Config)
 		wantVar string
 	}{
-		{"empty data dir", func(c *Config) { c.DataDir = "" }, "ASHORE_DATA_DIR"},
-		{"empty domain", func(c *Config) { c.Domain = "" }, "ASHORE_DOMAIN"},
+		{"empty data dir", func(c *Config) { c.DataDir = "" }, "WHERRY_DATA_DIR"},
+		{"empty domain", func(c *Config) { c.Domain = "" }, "WHERRY_DOMAIN"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

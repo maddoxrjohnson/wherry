@@ -7,9 +7,9 @@ import (
 	"io"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/manifest"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/manifest"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // Report is what Reconcile found and did.

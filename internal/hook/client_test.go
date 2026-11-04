@@ -96,9 +96,9 @@ func TestRunForwardsOutputAndVerdict(t *testing.T) {
 		t.Run(fmt.Sprintf("status %d", status), func(t *testing.T) {
 			sock, got := fakeDaemon(t, []string{"-----> building", "-----> live"}, status)
 			env := map[string]string{
-				"ASHORE_SOCK":         sock,
-				"ASHORE_NONCE":        "n0nce",
-				"ASHORE_APP":          "hello",
+				"WHERRY_SOCK":         sock,
+				"WHERRY_NONCE":        "n0nce",
+				"WHERRY_APP":          "hello",
 				"GIT_QUARANTINE_PATH": "/data/repos/hello.git/objects/incoming-x",
 			}
 			var stdout, stderr bytes.Buffer
@@ -124,7 +124,7 @@ func TestRunForwardsOutputAndVerdict(t *testing.T) {
 
 func TestRunRefusals(t *testing.T) {
 	one := oldSHA + " " + newSHA + " refs/heads/main\n"
-	fromDaemon := map[string]string{"ASHORE_SOCK": "unused", "ASHORE_NONCE": "n", "ASHORE_APP": "hello"}
+	fromDaemon := map[string]string{"WHERRY_SOCK": "unused", "WHERRY_NONCE": "n", "WHERRY_APP": "hello"}
 	silent, _ := fakeDaemon(t, []string{"-----> building"}, noStatus)
 	cases := []struct {
 		name  string
@@ -138,9 +138,9 @@ func TestRunRefusals(t *testing.T) {
 		{"not from daemon", []string{"pre-receive"}, one, map[string]string{}, 1, "not started by the daemon"},
 		{"two refs", []string{"pre-receive"}, one + zeroSHA + " " + newSHA + " refs/tags/v1\n", fromDaemon, 1, "exactly one branch"},
 		{"daemon down", []string{"pre-receive"}, one, map[string]string{
-			"ASHORE_SOCK": filepath.Join(t.TempDir(), "none.sock"), "ASHORE_NONCE": "n"}, 1, "no such file"},
+			"WHERRY_SOCK": filepath.Join(t.TempDir(), "none.sock"), "WHERRY_NONCE": "n"}, 1, "no such file"},
 		{"no verdict", []string{"pre-receive"}, one, map[string]string{
-			"ASHORE_SOCK": silent, "ASHORE_NONCE": "n"}, 1, "without a verdict"},
+			"WHERRY_SOCK": silent, "WHERRY_NONCE": "n"}, 1, "without a verdict"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,8 +152,8 @@ func TestRunRefusals(t *testing.T) {
 			if !strings.Contains(stderr.String(), tc.err) {
 				t.Errorf("stderr %q does not contain %q", stderr.String(), tc.err)
 			}
-			if !strings.HasPrefix(stderr.String(), "ashore: ") {
-				t.Errorf("stderr %q lacks the ashore: prefix", stderr.String())
+			if !strings.HasPrefix(stderr.String(), "wherry: ") {
+				t.Errorf("stderr %q lacks the wherry: prefix", stderr.String())
 			}
 		})
 	}

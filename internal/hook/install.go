@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitserver"
+	"github.com/maddoxrjohnson/wherry/internal/gitserver"
 )
 
 // InstallScript writes <dataDir>/hooks/pre-receive, the program git runs for

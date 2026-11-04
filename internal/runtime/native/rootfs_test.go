@@ -104,7 +104,7 @@ func TestPrepareExportsOnce(t *testing.T) {
 	dataDir := t.TempDir()
 	e := newExporter(d, dataDir)
 
-	im, err := e.Prepare(context.Background(), "ashore/hello:abc1234")
+	im, err := e.Prepare(context.Background(), "wherry/hello:abc1234")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +161,7 @@ func TestPrepareExportsOnce(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := e.Prepare(context.Background(), "ashore/hello:abc1234"); err != nil {
+			if _, err := e.Prepare(context.Background(), "wherry/hello:abc1234"); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -176,14 +176,14 @@ func TestPrepareExportsOnce(t *testing.T) {
 
 	// A fresh exporter (a restarted daemon) reads the stored config and
 	// does not export either.
-	again, err := newExporter(d, dataDir).Prepare(context.Background(), "ashore/hello:abc1234")
+	again, err := newExporter(d, dataDir).Prepare(context.Background(), "wherry/hello:abc1234")
 	if err != nil || again.Config.WorkingDir != "/srv" || d.exports.Load() != 1 {
 		t.Errorf("after restart: %v %+v exports=%d", err, again.Config, d.exports.Load())
 	}
 
 	// Without the marker the export is redone.
 	_ = os.Remove(filepath.Join(im.Dir, doneFile))
-	if _, err := e.Prepare(context.Background(), "ashore/hello:abc1234"); err != nil || d.exports.Load() != 2 {
+	if _, err := e.Prepare(context.Background(), "wherry/hello:abc1234"); err != nil || d.exports.Load() != 2 {
 		t.Errorf("cut-off export not redone: %v exports=%d", err, d.exports.Load())
 	}
 }
@@ -255,7 +255,7 @@ func dockerClient(t *testing.T) *client.Client {
 	return cli
 }
 
-const helloImage = "ashore/native-test-hello:latest"
+const helloImage = "wherry/native-test-hello:latest"
 
 // buildHelloGo builds examples/hello-go with the Docker daemon and returns
 // the tag; the image is removed when the test ends.
@@ -274,7 +274,7 @@ func buildHelloGo(t *testing.T, cli *client.Client) string {
 	}
 	_ = tw.Close()
 	res, err := cli.ImageBuild(context.Background(), &ctxTar, client.ImageBuildOptions{
-		Tags: []string{helloImage}, Labels: map[string]string{"ashore.test": "1"},
+		Tags: []string{helloImage}, Labels: map[string]string{"wherry.test": "1"},
 		Remove: true, ForceRemove: true, Version: build.BuilderV1,
 	})
 	if err != nil {
@@ -320,7 +320,7 @@ func TestPrepareHelloGoWithDocker(t *testing.T) {
 		}
 	}
 	// No export container is left behind.
-	list, err := cli.ContainerList(context.Background(), client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("label", "ashore.export")})
+	list, err := cli.ContainerList(context.Background(), client.ContainerListOptions{All: true, Filters: make(client.Filters).Add("label", "wherry.export")})
 	if err != nil || len(list.Items) != 0 {
 		t.Errorf("export containers left: %v %v", list.Items, err)
 	}

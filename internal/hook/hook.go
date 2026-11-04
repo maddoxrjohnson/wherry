@@ -2,9 +2,9 @@
 // unix-socket protocol it uses to hand the push to the daemon.
 //
 // git runs <DATA_DIR>/hooks/pre-receive, a two-line shell script that execs
-// "ashored hook pre-receive" (InstallScript writes it). The hook reads git's
+// "wherryd hook pre-receive" (InstallScript writes it). The hook reads git's
 // "<old> <new> <ref>" lines, insists on exactly one update to the deploy
-// branch, connects to the socket named by ASHORE_SOCK, and sends one JSON
+// branch, connects to the socket named by WHERRY_SOCK, and sends one JSON
 // line, a Request. The daemon answers with lines that each start with a band
 // byte: bandOutput lines are shown to the user (git wraps the hook's stdout
 // in sideband, so they appear as "remote: ..."), and one final bandStatus

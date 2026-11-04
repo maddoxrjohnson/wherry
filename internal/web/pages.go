@@ -12,9 +12,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
-	"github.com/maddoxrjohnson/ashore/internal/sse"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/sse"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // appRow is one line of the apps page.

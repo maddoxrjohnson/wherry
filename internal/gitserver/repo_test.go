@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 func TestInitRepo(t *testing.T) {

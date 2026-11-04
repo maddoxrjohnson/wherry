@@ -20,4 +20,4 @@ button { font: inherit; padding: 0.25em 0.7em; cursor: pointer; }
 .masked { font-family: monospace; }
 #logs { background: #111; color: #ddd; padding: 0.8em; height: 24em; overflow-y: auto; font-size: 0.85em; white-space: pre-wrap; }
 #logs .stderr { color: #f99; }
-#logs .ashore { color: #ff9; }
+#logs .wherry { color: #ff9; }

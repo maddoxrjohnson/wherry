@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/sse"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/sse"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -116,7 +116,7 @@ func newFixture(t *testing.T) *fixture {
 // goLive gives hello a live release so a config change redeploys.
 func (f *fixture) goLive(t *testing.T) {
 	t.Helper()
-	r, err := f.store.CreateRelease(context.Background(), f.app.ID, store.NewRelease{Image: "ashore/hello:abc1234"})
+	r, err := f.store.CreateRelease(context.Background(), f.app.ID, store.NewRelease{Image: "wherry/hello:abc1234"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,8 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/lines"
-	"github.com/maddoxrjohnson/ashore/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/lines"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
 )
 
 // Event names. Every stream ends with exactly one Done or Error frame;

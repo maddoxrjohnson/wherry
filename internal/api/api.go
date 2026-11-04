@@ -1,4 +1,4 @@
-// Package api is the daemon's HTTP API, which the ashore CLI and the
+// Package api is the daemon's HTTP API, which the wherry CLI and the
 // dashboard use. It listens on the internal address only (never the
 // router's public port), every request carries the admin token as a bearer
 // token, and bodies and results are JSON. Operations that take a while, a
@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/serve"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/serve"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 // Store is the slice of the database the API reads and writes.
@@ -104,7 +104,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	rw := &serve.Recorder{ResponseWriter: w}
 	if !s.authorized(r) {
-		rw.Header().Set("WWW-Authenticate", `Bearer realm="ashore"`)
+		rw.Header().Set("WWW-Authenticate", `Bearer realm="wherry"`)
 		writeError(rw, http.StatusUnauthorized, "missing or wrong token")
 	} else {
 		r.Body = http.MaxBytesReader(rw, r.Body, maxBody)

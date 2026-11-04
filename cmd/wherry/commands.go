@@ -13,9 +13,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/api"
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/api"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // dispatch runs one command. Arity is checked here so every command body
@@ -138,7 +138,7 @@ func (c *cli) logs(ctx context.Context, args []string) error {
 func formatLine(l logs.Line) string {
 	who := l.Release
 	if l.Stream == logs.StreamSystem {
-		who = "ashore"
+		who = "wherry"
 	}
 	return l.Time.Local().Format("2006-01-02T15:04:05.000") + " " + who + "[" + l.Stream + "]: " + l.Text
 }
@@ -182,7 +182,7 @@ func (c *cli) appsCreate(ctx context.Context, client *api.Client, name string) e
 	if c.json {
 		return c.printJSON(a)
 	}
-	_, _ = fmt.Fprintf(c.out, "created %s\n  git remote add ashore %s\n  git push ashore main\n", a.Name, a.Remote)
+	_, _ = fmt.Fprintf(c.out, "created %s\n  git remote add wherry %s\n  git push wherry main\n", a.Name, a.Remote)
 	return nil
 }
 

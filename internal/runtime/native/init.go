@@ -40,14 +40,14 @@ const (
 	errFD  = 4 // the child's error, if any; closed on a successful exec
 )
 
-// Init is the child side: "ashored runtime-init". It runs already inside
+// Init is the child side: "wherryd runtime-init". It runs already inside
 // the new namespaces (the parent passed the clone flags), builds the
 // filesystem, moves into it, drops privileges, and execs the app, which
 // then is PID 1 of the container. It never returns on success; the exit
 // status it returns is for the failure paths.
 func Init(args []string) int {
 	if len(args) != 0 {
-		fmt.Fprintln(os.Stderr, "ashored runtime-init takes no arguments")
+		fmt.Fprintln(os.Stderr, "wherryd runtime-init takes no arguments")
 		return 2
 	}
 	errPipe := os.NewFile(errFD, "errpipe")

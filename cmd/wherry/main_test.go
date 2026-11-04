@@ -18,11 +18,11 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/maddoxrjohnson/ashore/internal/api"
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/api"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 const token = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -86,7 +86,7 @@ func newHarness(t *testing.T) *harness {
 		api.Config{DataDir: t.TempDir(), Site: site.Site{Domain: "localhost", SSHAddr: "127.0.0.1:2222"}},
 		slog.New(slog.NewTextHandler(io.Discard, nil))))
 	t.Cleanup(srv.Close)
-	return &harness{t: t, server: srv, hub: hub, env: map[string]string{"ASHORE_CONFIG": filepath.Join(t.TempDir(), "config")}}
+	return &harness{t: t, server: srv, hub: hub, env: map[string]string{"WHERRY_CONFIG": filepath.Join(t.TempDir(), "config")}}
 }
 
 // run runs one command and returns stdout, stderr, and the exit status.
@@ -102,7 +102,7 @@ func (h *harness) ok(args ...string) string {
 	h.t.Helper()
 	out, errOut, code := h.run(args...)
 	if code != 0 {
-		h.t.Fatalf("ashore %s: exit %d\n%s%s", strings.Join(args, " "), code, out, errOut)
+		h.t.Fatalf("wherry %s: exit %d\n%s%s", strings.Join(args, " "), code, out, errOut)
 	}
 	return out
 }
@@ -121,7 +121,7 @@ func TestCLI(t *testing.T) {
 	if !strings.Contains(out, "logged in to "+h.server.URL+";") {
 		t.Errorf("login output %q", out)
 	}
-	if info, err := os.Stat(h.env["ASHORE_CONFIG"]); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(h.env["WHERRY_CONFIG"]); err != nil || info.Mode().Perm() != 0o600 {
 		t.Errorf("config file: %v %v", info, err)
 	}
 
@@ -130,7 +130,7 @@ func TestCLI(t *testing.T) {
 		t.Errorf("apps on an empty daemon:\n%s", out)
 	}
 	out = h.ok("apps:create", "hello")
-	if !strings.Contains(out, "created hello\n  git remote add ashore ssh://ashore@127.0.0.1:2222/hello\n  git push ashore main\n") {
+	if !strings.Contains(out, "created hello\n  git remote add wherry ssh://wherry@127.0.0.1:2222/hello\n  git push wherry main\n") {
 		t.Errorf("apps:create:\n%s", out)
 	}
 	if _, errOut, code := h.run("apps:create", "hello"); code != 1 || !strings.Contains(errOut, "already exists") {
@@ -171,7 +171,7 @@ func TestCLI(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 	app, _ := st.GetApp(context.Background(), "hello")
-	r1, _ := st.CreateRelease(context.Background(), app.ID, store.NewRelease{Image: "ashore/hello:abc1234", GitSHA: strings.Repeat("a", 40), ConfigJSON: `{"GREETING":"hi"}`, Note: "push aaaaaaa"})
+	r1, _ := st.CreateRelease(context.Background(), app.ID, store.NewRelease{Image: "wherry/hello:abc1234", GitSHA: strings.Repeat("a", 40), ConfigJSON: `{"GREETING":"hi"}`, Note: "push aaaaaaa"})
 	_ = st.SetLive(context.Background(), app.ID, r1.ID)
 
 	out = h.ok("config:unset", "hello", "EMPTY")
@@ -187,7 +187,7 @@ func TestCLI(t *testing.T) {
 	}
 	out = h.ok("releases:info", "hello", "v1")
 	info := flat(out)
-	for _, want := range []string{"release: v1", "app: hello", "status: live", "image: ashore/hello:abc1234", "config: GREETING=hi", "manifest: {}"} {
+	for _, want := range []string{"release: v1", "app: hello", "status: live", "image: wherry/hello:abc1234", "config: GREETING=hi", "manifest: {}"} {
 		if !strings.Contains(info, want) {
 			t.Errorf("releases:info lacks %q:\n%s", want, out)
 		}
@@ -236,7 +236,7 @@ func TestCLI(t *testing.T) {
 	// Usage errors are exit 2 with the usage text.
 	for _, args := range [][]string{nil, {"nope"}, {"apps:create"}, {"config:set", "hello"}, {"releases:info", "hello"},
 		{"logs"}, {"logs", "hello", "-n"}, {"logs", "hello", "-n", "x"}, {"logs", "hello", "extra"}, {"logs", "--bogus", "hello"}} {
-		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "usage: ashore") {
+		if _, errOut, code := h.run(args...); code != 2 || !strings.Contains(errOut, "usage: wherry") {
 			t.Errorf("%v: %d %q", args, code, errOut)
 		}
 	}
@@ -245,37 +245,37 @@ func TestCLI(t *testing.T) {
 	h.hub.Sink("hello").Append(logs.Line{App: "hello", Release: "v1", Stream: logs.StreamStderr, Time: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC), Text: "warm"})
 	h.hub.Sink("hello").Append(logs.Line{App: "hello", Stream: logs.StreamSystem, Time: time.Date(2026, 10, 18, 12, 0, 1, 0, time.UTC), Text: "dropped 3 lines"})
 	out = h.ok("logs", "hello")
-	if !strings.Contains(out, " v1[stderr]: warm\n") || !strings.Contains(out, " ashore[ashore]: dropped 3 lines\n") {
+	if !strings.Contains(out, " v1[stderr]: warm\n") || !strings.Contains(out, " wherry[wherry]: dropped 3 lines\n") {
 		t.Errorf("logs:\n%s", out)
 	}
 	if out := h.ok("logs", "-n", "1", "hello"); strings.Contains(out, "warm") || !strings.Contains(out, "dropped") {
 		t.Errorf("logs -n 1:\n%s", out)
 	}
-	if out := h.ok("logs", "--json", "hello", "-n", "1"); !strings.HasPrefix(out, `{"app":"hello","stream":"ashore","time":"2026-10-18T12:00:01Z","text":"dropped 3 lines"}`) {
+	if out := h.ok("logs", "--json", "hello", "-n", "1"); !strings.HasPrefix(out, `{"app":"hello","stream":"wherry","time":"2026-10-18T12:00:01Z","text":"dropped 3 lines"}`) {
 		t.Errorf("logs --json:\n%s", out)
 	}
 	if _, errOut, code := h.run("logs", "nope"); code != 1 || !strings.Contains(errOut, "not found") {
 		t.Errorf("logs of an unknown app: %d %q", code, errOut)
 	}
-	if out, _, code := h.run("--version"); code != 0 || out != "ashore dev\n" {
+	if out, _, code := h.run("--version"); code != 0 || out != "wherry dev\n" {
 		t.Errorf("--version: %d %q", code, out)
 	}
 
 	// Environment beats the file.
-	h.env["ASHORE_URL"], h.env["ASHORE_TOKEN"] = h.server.URL, "wrong"
+	h.env["WHERRY_URL"], h.env["WHERRY_TOKEN"] = h.server.URL, "wrong"
 	if _, errOut, code := h.run("apps"); code != 1 || !strings.Contains(errOut, "wrong token") {
 		t.Errorf("env token: %d %q", code, errOut)
 	}
 }
 
-// dbPath finds the store the test server opened: it is the only ashore.db
+// dbPath finds the store the test server opened: it is the only wherry.db
 // under the harness's temp dirs. Kept simple: the store path is derived the
 // same way newHarness built it.
 func dbPath(t *testing.T, h *harness) string {
 	t.Helper()
 	// newHarness opened filepath.Join(t.TempDir(), "test.db"); TempDir is
 	// deterministic per call order, so look for it.
-	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(h.env["ASHORE_CONFIG"]), "..", "*", "test.db"))
+	matches, _ := filepath.Glob(filepath.Join(filepath.Dir(h.env["WHERRY_CONFIG"]), "..", "*", "test.db"))
 	if len(matches) != 1 {
 		t.Fatalf("test.db: %v", matches)
 	}

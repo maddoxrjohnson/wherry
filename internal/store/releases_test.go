@@ -31,8 +31,8 @@ func TestCreateReleaseNumbersPerApp(t *testing.T) {
 	a, b := newApp(t, s, "a"), newApp(t, s, "b")
 
 	r1 := mustRelease(t, s, a.ID, NewRelease{GitSHA: "1111111111111111111111111111111111111111", Note: "push 1111111"})
-	r2 := mustRelease(t, s, a.ID, NewRelease{Image: "ashore/a:2222222"})
-	rb := mustRelease(t, s, b.ID, NewRelease{Image: "ashore/b:1111111"})
+	r2 := mustRelease(t, s, a.ID, NewRelease{Image: "wherry/a:2222222"})
+	rb := mustRelease(t, s, b.ID, NewRelease{Image: "wherry/b:1111111"})
 	if r1.Version != 1 || r2.Version != 2 || rb.Version != 1 {
 		t.Errorf("versions a=%d,%d b=%d, want 1,2 and 1", r1.Version, r2.Version, rb.Version)
 	}

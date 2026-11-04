@@ -7,7 +7,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // fail maps a store error to a status. Anything unexpected is a 500 with a

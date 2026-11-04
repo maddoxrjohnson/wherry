@@ -14,12 +14,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/manifest"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/manifest"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
-// Instance defaults for what ashore.toml leaves out.
+// Instance defaults for what wherry.toml leaves out.
 const (
 	defaultMemory = 256 << 20
 	defaultCPU    = 1.0

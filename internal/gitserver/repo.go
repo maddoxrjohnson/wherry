@@ -7,8 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // ErrRepoExists reports an InitRepo for an app that already has a repository.

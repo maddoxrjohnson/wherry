@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/sse"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/sse"
 )
 
 // Client calls the API. URL is the daemon's internal address with scheme,

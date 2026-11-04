@@ -22,11 +22,11 @@ func TestURLs(t *testing.T) {
 		t.Error("AppHost")
 	}
 	for addr, want := range map[string]string{
-		":2222":          "ssh://ashore@example.test:2222/hello",
-		"0.0.0.0:22":     "ssh://ashore@example.test:22/hello",
-		"[::]:2222":      "ssh://ashore@example.test:2222/hello",
-		"127.0.0.1:2299": "ssh://ashore@127.0.0.1:2299/hello",
-		"bogus":          "ssh://ashore@example.test/hello",
+		":2222":          "ssh://wherry@example.test:2222/hello",
+		"0.0.0.0:22":     "ssh://wherry@example.test:22/hello",
+		"[::]:2222":      "ssh://wherry@example.test:2222/hello",
+		"127.0.0.1:2299": "ssh://wherry@127.0.0.1:2299/hello",
+		"bogus":          "ssh://wherry@example.test/hello",
 	} {
 		s.SSHAddr = addr
 		if got := s.RemoteURL("hello"); got != want {

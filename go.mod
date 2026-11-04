@@ -1,4 +1,4 @@
-module github.com/maddoxrjohnson/ashore
+module github.com/maddoxrjohnson/wherry
 
 go 1.27.1
 

@@ -16,12 +16,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 // Store is the slice of the database the pages read.
@@ -51,7 +51,7 @@ type Config struct {
 }
 
 const (
-	cookieName = "ashore_session"
+	cookieName = "wherry_session"
 	sessionTTL = 24 * time.Hour
 	logTail    = 100
 )

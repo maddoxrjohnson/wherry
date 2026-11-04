@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 func TestRingWraps(t *testing.T) {

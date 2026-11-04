@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/config"
+	"github.com/maddoxrjohnson/wherry/internal/config"
 )
 
 // logBuffer collects log lines from the daemon's goroutines.
@@ -108,7 +108,7 @@ func TestRunStartsAndStops(t *testing.T) {
 	if !strings.Contains(logs.String(), "shutting down") {
 		t.Errorf("no shutdown line:\n%s", logs.String())
 	}
-	if _, err := os.Stat(filepath.Join(cfg.DataDir, "ashore.sock")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(cfg.DataDir, "wherry.sock")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("hook socket left behind: %v", err)
 	}
 }

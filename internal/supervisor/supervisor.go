@@ -20,11 +20,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/builder"
-	"github.com/maddoxrjohnson/ashore/internal/manifest"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/builder"
+	"github.com/maddoxrjohnson/wherry/internal/manifest"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // Store is the slice of the database the supervisor uses.
@@ -70,7 +70,7 @@ type Config struct {
 	BuildConcurrency int
 	// HealthTimeout is how long a new instance has to pass its health
 	// check and StopGrace is SIGTERM-to-SIGKILL when stopping one, unless
-	// the app's ashore.toml says otherwise.
+	// the app's wherry.toml says otherwise.
 	HealthTimeout time.Duration
 	StopGrace     time.Duration
 	// DrainGrace is how long a replaced instance keeps running after the

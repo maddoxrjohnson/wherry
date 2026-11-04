@@ -9,7 +9,7 @@ import (
 //
 // The port is free when FreePort returns, not reserved: between the Close
 // here and the runtime binding it, another process could take it. That
-// window is milliseconds wide, ashore is the only thing on the box handing
+// window is milliseconds wide, wherry is the only thing on the box handing
 // out high ports, and deploys of one app run one at a time. A collision
 // fails Start, which fails the deploy and leaves the old release serving,
 // so the cost of losing the race is a retried push, not an outage.

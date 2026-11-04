@@ -54,7 +54,7 @@ cpu = "0.5"
 			m.Process.Memory = 32 << 20
 			return m
 		}(), ""},
-		{"not toml", "health = [", Manifest{}, "ashore.toml:"},
+		{"not toml", "health = [", Manifest{}, "wherry.toml:"},
 		{"unknown section", "[helth]\npath = \"/x\"\n", Manifest{}, "unknown key helth"},
 		{"unknown key", "[health]\npth = \"/x\"\n", Manifest{}, "unknown key health.pth"},
 		{"bad duration", "[health]\ntimeout = \"soon\"\n", Manifest{}, "soon"},

@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // TestMain lets the test binary act as the container init: Start re-executes
@@ -130,7 +130,7 @@ func probeImage(t *testing.T) string {
 			probeErr = err
 			return
 		}
-		dir, err := os.MkdirTemp("", "ashore-probe-*")
+		dir, err := os.MkdirTemp("", "wherry-probe-*")
 		if err != nil {
 			probeErr = err
 			return
@@ -179,7 +179,7 @@ func newTestRuntime(t *testing.T) *Runtime {
 		t.Fatal(err)
 	}
 	d := &fakeDocker{id: "probe", tarball: func() []byte { t.Fatal("export should not run"); return nil }}
-	r := New(d, dataDir, filepath.Join(dataDir, "cgroup", "ashore"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := New(d, dataDir, filepath.Join(dataDir, "cgroup", "wherry"), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	t.Cleanup(func() {
 		if list, _ := r.List(context.Background()); len(list) > 0 {
 			for _, inst := range list {
@@ -454,7 +454,7 @@ func TestMemoryLimitKillsTheHog(t *testing.T) {
 	dataDir := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(dataDir, "rootfs"), 0o755)
 	_ = os.Symlink(img, filepath.Join(dataDir, "rootfs", "probe"))
-	r := New(&fakeDocker{id: "probe"}, dataDir, "/sys/fs/cgroup/ashore-test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := New(&fakeDocker{id: "probe"}, dataDir, "/sys/fs/cgroup/wherry-test", slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if r.cg == nil {
 		t.Fatal("cgroups not enabled as root on cgroup v2")
 	}
@@ -489,7 +489,7 @@ func TestMemoryLimitKillsTheHog(t *testing.T) {
 	if _, err := os.Stat(st.Cgroup); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("cgroup left behind: %v", err)
 	}
-	_ = os.Remove("/sys/fs/cgroup/ashore-test")
+	_ = os.Remove("/sys/fs/cgroup/wherry-test")
 }
 
 func TestStopIsGracefulThenForceful(t *testing.T) {
@@ -559,7 +559,7 @@ func TestAdoptedInstanceAfterARestart(t *testing.T) {
 
 	// A new runtime over the same data dir knows nothing of the child but
 	// finds it through the state file and /proc.
-	later := New(&fakeDocker{id: "probe"}, filepath.Dir(r.dir), filepath.Join(filepath.Dir(r.dir), "cgroup", "ashore"), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	later := New(&fakeDocker{id: "probe"}, filepath.Dir(r.dir), filepath.Join(filepath.Dir(r.dir), "cgroup", "wherry"), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	list, err := later.List(ctx)
 	if err != nil || len(list) != 1 || !list[0].Running || list[0].Addr != inst.Addr || list[0].App != "probe" {
 		t.Fatalf("list after restart: %+v %v", list, err)

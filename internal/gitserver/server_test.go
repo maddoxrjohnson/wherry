@@ -21,7 +21,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // fakeHooks records the nonces the server asks for. Socket is a fixed
@@ -32,7 +32,7 @@ type fakeHooks struct {
 	revoked int
 }
 
-func (f *fakeHooks) Socket() string { return "/run/fake/ashore.sock" }
+func (f *fakeHooks) Socket() string { return "/run/fake/wherry.sock" }
 
 func (f *fakeHooks) Issue(app string) (string, func()) {
 	f.mu.Lock()
@@ -69,7 +69,7 @@ func newTestServer(t *testing.T) (*testServer, context.Context, context.CancelFu
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	dataDir := t.TempDir()
-	st, err := store.Open(ctx, filepath.Join(dataDir, "ashore.db"))
+	st, err := store.Open(ctx, filepath.Join(dataDir, "wherry.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func (ts *testServer) dial(t *testing.T, signer ssh.Signer) *ssh.Client {
 
 func (ts *testServer) clientConfig(signer ssh.Signer) *ssh.ClientConfig {
 	return &ssh.ClientConfig{
-		User:            "ashore",
+		User:            "wherry",
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: ssh.FixedHostKey(ts.srv.HostKey()),
 		Timeout:         5 * time.Second,
@@ -198,7 +198,7 @@ func (ts *testServer) clientEnv(t *testing.T) []string {
 }
 
 func (ts *testServer) url(app string) string {
-	return fmt.Sprintf("ssh://ashore@127.0.0.1:%s/%s", ts.port, app)
+	return fmt.Sprintf("ssh://wherry@127.0.0.1:%s/%s", ts.port, app)
 }
 
 type gitClient struct {
@@ -380,7 +380,7 @@ func TestPushWithGit(t *testing.T) {
 	if err := os.MkdirAll(hooks, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	script := "#!/bin/sh\necho \"stand-in hook ran app=$ASHORE_APP sock=$ASHORE_SOCK nonce=$ASHORE_NONCE\"\n"
+	script := "#!/bin/sh\necho \"stand-in hook ran app=$WHERRY_APP sock=$WHERRY_SOCK nonce=$WHERRY_NONCE\"\n"
 	if err := os.WriteFile(filepath.Join(hooks, "pre-receive"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +396,7 @@ func TestPushWithGit(t *testing.T) {
 	work.run("commit", "--quiet", "-m", "one")
 
 	out := work.run("push", ts.url("hello"), "main")
-	if want := "remote: stand-in hook ran app=hello sock=/run/fake/ashore.sock nonce=nonce-1"; !strings.Contains(out, want) {
+	if want := "remote: stand-in hook ran app=hello sock=/run/fake/wherry.sock nonce=nonce-1"; !strings.Contains(out, want) {
 		t.Fatalf("push output lacks %q:\n%s", want, out)
 	}
 	if issued, revoked := ts.hooks.counts(); issued != 1 || revoked != 1 {

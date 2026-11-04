@@ -1,7 +1,7 @@
-// Package daemon wires the pieces of ashored together and runs them: the
+// Package daemon wires the pieces of wherryd together and runs them: the
 // store, the Docker client, the runtime, the supervisor, and the four
 // listeners (hook socket, SSH, HTTP with optional HTTPS, internal). It is
-// what cmd/ashored calls once it has parsed its flags and configuration.
+// what cmd/wherryd calls once it has parsed its flags and configuration.
 package daemon
 
 import (
@@ -17,21 +17,21 @@ import (
 	"github.com/moby/moby/client"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/maddoxrjohnson/ashore/internal/api"
-	"github.com/maddoxrjohnson/ashore/internal/builder"
-	"github.com/maddoxrjohnson/ashore/internal/config"
-	"github.com/maddoxrjohnson/ashore/internal/gitserver"
-	"github.com/maddoxrjohnson/ashore/internal/hook"
-	"github.com/maddoxrjohnson/ashore/internal/logs"
-	"github.com/maddoxrjohnson/ashore/internal/metrics"
-	"github.com/maddoxrjohnson/ashore/internal/router"
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
-	dockerrt "github.com/maddoxrjohnson/ashore/internal/runtime/docker"
-	"github.com/maddoxrjohnson/ashore/internal/runtime/native"
-	"github.com/maddoxrjohnson/ashore/internal/site"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
-	"github.com/maddoxrjohnson/ashore/internal/web"
+	"github.com/maddoxrjohnson/wherry/internal/api"
+	"github.com/maddoxrjohnson/wherry/internal/builder"
+	"github.com/maddoxrjohnson/wherry/internal/config"
+	"github.com/maddoxrjohnson/wherry/internal/gitserver"
+	"github.com/maddoxrjohnson/wherry/internal/hook"
+	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/metrics"
+	"github.com/maddoxrjohnson/wherry/internal/router"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
+	dockerrt "github.com/maddoxrjohnson/wherry/internal/runtime/docker"
+	"github.com/maddoxrjohnson/wherry/internal/runtime/native"
+	"github.com/maddoxrjohnson/wherry/internal/site"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/web"
 )
 
 // dockerContainerPort is the port apps listen on inside a Docker
@@ -48,7 +48,7 @@ func Run(ctx context.Context, cfg config.Config, version string, log *slog.Logge
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		return fmt.Errorf("data dir: %w", err)
 	}
-	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "ashore.db"))
+	st, err := store.Open(ctx, filepath.Join(cfg.DataDir, "wherry.db"))
 	if err != nil {
 		return err
 	}

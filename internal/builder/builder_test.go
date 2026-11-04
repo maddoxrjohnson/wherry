@@ -125,10 +125,10 @@ func readLog(t *testing.T, dataDir, app, sha string) string {
 }
 
 func TestTag(t *testing.T) {
-	if got := Tag("hello", "8196b7e34b2c977d22b640a2ee673db74aefbd10"); got != "ashore/hello:8196b7e" {
+	if got := Tag("hello", "8196b7e34b2c977d22b640a2ee673db74aefbd10"); got != "wherry/hello:8196b7e" {
 		t.Errorf("Tag = %q", got)
 	}
-	if got := Tag("hello", "abc"); got != "ashore/hello:abc" {
+	if got := Tag("hello", "abc"); got != "wherry/hello:abc" {
 		t.Errorf("Tag with a short sha = %q", got)
 	}
 }
@@ -140,21 +140,21 @@ func TestBuildRelaysStream(t *testing.T) {
 		`{"status":"Downloading","id":"abc","progressDetail":{"current":1,"total":2}}` +
 		`{"status":"Pull complete","id":"abc"}` +
 		`{"stream":" ---> 123\n"}{"aux":{"ID":"sha256:123"}}` +
-		`{"stream":"Successfully tagged ashore/hello:` + sha[:7] + `\n"}`
+		`{"stream":"Successfully tagged wherry/hello:` + sha[:7] + `\n"}`
 	d := &fakeDocker{stream: stream}
 	dataDir := t.TempDir()
 	b := New(d, dataDir, time.Minute, nil)
-	b.Labels = map[string]string{"ashore.test": "1"}
+	b.Labels = map[string]string{"wherry.test": "1"}
 
 	var out strings.Builder
 	tag, err := b.Build(context.Background(), Job{App: "hello", Repo: repo, SHA: sha}, &out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tag != "ashore/hello:"+sha[:7] {
+	if tag != "wherry/hello:"+sha[:7] {
 		t.Errorf("tag = %q", tag)
 	}
-	want := "Step 1/1 : FROM scratch\nlatest: Pulling from library/x\nabc: Pull complete\n ---> 123\nSuccessfully tagged ashore/hello:" + sha[:7] + "\n"
+	want := "Step 1/1 : FROM scratch\nlatest: Pulling from library/x\nabc: Pull complete\n ---> 123\nSuccessfully tagged wherry/hello:" + sha[:7] + "\n"
 	if out.String() != want {
 		t.Errorf("out = %q\nwant %q", out.String(), want)
 	}
@@ -166,7 +166,7 @@ func TestBuildRelaysStream(t *testing.T) {
 	if len(o.Tags) != 1 || o.Tags[0] != tag || o.Dockerfile != "Dockerfile" || !o.Remove || !o.ForceRemove || o.Version != build.BuilderV1 {
 		t.Errorf("options = %+v", o)
 	}
-	for k, v := range map[string]string{"ashore.app": "hello", "ashore.sha": sha, "ashore.test": "1"} {
+	for k, v := range map[string]string{"wherry.app": "hello", "wherry.sha": sha, "wherry.test": "1"} {
 		if o.Labels[k] != v {
 			t.Errorf("label %s = %q, want %q", k, o.Labels[k], v)
 		}
@@ -177,7 +177,7 @@ func TestBuildRelaysStream(t *testing.T) {
 			t.Errorf("build context %q lacks %s", got, name)
 		}
 	}
-	if _, err := filepath.Glob(filepath.Join(os.TempDir(), "ashore-context-*")); err != nil {
+	if _, err := filepath.Glob(filepath.Join(os.TempDir(), "wherry-context-*")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -291,7 +291,7 @@ func TestBuildHelloGoWithDocker(t *testing.T) {
 		}
 	})
 	b := New(cli, dataDir, 10*time.Minute, nil)
-	b.Labels = map[string]string{"ashore.test": "1"}
+	b.Labels = map[string]string{"wherry.test": "1"}
 
 	repo, sha := newRepo(t, exampleFiles(t))
 	var out strings.Builder
@@ -315,7 +315,7 @@ func TestBuildHelloGoWithDocker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("image %s not found after the build: %v", tag, err)
 	}
-	if img.Config == nil || img.Config.Labels["ashore.test"] != "1" || img.Config.Labels["ashore.sha"] != sha {
+	if img.Config == nil || img.Config.Labels["wherry.test"] != "1" || img.Config.Labels["wherry.sha"] != sha {
 		t.Errorf("image labels = %v", img.Config)
 	}
 

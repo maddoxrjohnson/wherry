@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/maddoxrjohnson/ashore/internal/sse"
-	"github.com/maddoxrjohnson/ashore/internal/store"
-	"github.com/maddoxrjohnson/ashore/internal/supervisor"
+	"github.com/maddoxrjohnson/wherry/internal/sse"
+	"github.com/maddoxrjohnson/wherry/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
 // restart streams a restart of the app's live release.

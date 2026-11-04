@@ -127,7 +127,7 @@ func (e *exporter) export(ctx context.Context, image string, im Image) error {
 		return err
 	}
 	res, err := e.docker.ContainerCreate(ctx, client.ContainerCreateOptions{
-		Config:     &container.Config{Image: image, Labels: map[string]string{"ashore.export": "1"}},
+		Config:     &container.Config{Image: image, Labels: map[string]string{"wherry.export": "1"}},
 		HostConfig: &container.HostConfig{},
 	})
 	if err != nil {

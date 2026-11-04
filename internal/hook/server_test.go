@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitserver"
+	"github.com/maddoxrjohnson/wherry/internal/gitserver"
 )
 
 // TestPushRunsHook installs this binary as the pre-receive hook (InstallScript
@@ -106,7 +106,7 @@ func quarantineFor(s *Server, app string) string {
 func runHook(t *testing.T, s *Server, app, nonce, quarantine string) (code int, stdout, stderr string) {
 	t.Helper()
 	env := map[string]string{
-		"ASHORE_SOCK": s.Socket(), "ASHORE_NONCE": nonce, "ASHORE_APP": app,
+		"WHERRY_SOCK": s.Socket(), "WHERRY_NONCE": nonce, "WHERRY_APP": app,
 		"GIT_QUARANTINE_PATH": quarantine,
 	}
 	var out, errb strings.Builder
@@ -431,7 +431,7 @@ func TestPushRunsHook(t *testing.T) {
 	head := must(git(nil, "rev-parse", "HEAD"))
 	// What the SSH server puts in receive-pack's environment.
 	pushEnv := func(nonce string) []string {
-		return []string{"ASHORE_APP=hello", "ASHORE_SOCK=" + s.Socket(), "ASHORE_NONCE=" + nonce}
+		return []string{"WHERRY_APP=hello", "WHERRY_SOCK=" + s.Socket(), "WHERRY_NONCE=" + nonce}
 	}
 
 	nonce, _ := s.Issue("hello")
@@ -477,7 +477,7 @@ func TestPushRunsHook(t *testing.T) {
 
 	// Without the daemon's variables the hook refuses before connecting.
 	out, err = git(nil, "push", repo, "main")
-	if err == nil || !strings.Contains(out, "remote: ashore: not started by the daemon") {
+	if err == nil || !strings.Contains(out, "remote: wherry: not started by the daemon") {
 		t.Errorf("push without daemon env: err %v, output:\n%s", err, out)
 	}
 }

@@ -1,4 +1,4 @@
-// Command ashore is the command-line client for an ashore daemon. It talks
+// Command wherry is the command-line client for a wherry daemon. It talks
 // to the daemon's HTTP API with the admin token; login stores both in a
 // config file so every other command needs only its arguments.
 package main
@@ -13,12 +13,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/maddoxrjohnson/ashore/internal/api"
+	"github.com/maddoxrjohnson/wherry/internal/api"
 )
 
 var version = "dev"
 
-const usage = `usage: ashore <command> [arguments]
+const usage = `usage: wherry <command> [arguments]
 
   login <url> <token>              save the daemon's address and admin token
   apps                             list apps
@@ -36,9 +36,9 @@ const usage = `usage: ashore <command> [arguments]
   keys:add <name> <pubkey-file>    allow a public key to push
 
 Flags: --json on list and show commands; --version.
-The daemon address and token come from ASHORE_URL and ASHORE_TOKEN when set,
-otherwise from the file login writes (ASHORE_CONFIG, or
-$XDG_CONFIG_HOME/ashore/config).`
+The daemon address and token come from WHERRY_URL and WHERRY_TOKEN when set,
+otherwise from the file login writes (WHERRY_CONFIG, or
+$XDG_CONFIG_HOME/wherry/config).`
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, os.Getenv))
@@ -54,7 +54,7 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 		case "--json", "-json":
 			asJSON = true
 		case "--version", "-version":
-			_, _ = fmt.Fprintln(stdout, "ashore", version)
+			_, _ = fmt.Fprintln(stdout, "wherry", version)
 			return 0
 		case "-h", "--help", "help":
 			_, _ = fmt.Fprintln(stdout, usage)
@@ -73,10 +73,10 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	case err == nil:
 		return 0
 	case errors.Is(err, errUsage):
-		_, _ = fmt.Fprintf(stderr, "ashore: %v\n\n%s\n", err, usage)
+		_, _ = fmt.Fprintf(stderr, "wherry: %v\n\n%s\n", err, usage)
 		return 2
 	default:
-		_, _ = fmt.Fprintln(stderr, "ashore:", err)
+		_, _ = fmt.Fprintln(stderr, "wherry:", err)
 		return 1
 	}
 }
@@ -96,25 +96,25 @@ type settings struct {
 	Token string `json:"token"`
 }
 
-// configPath is ASHORE_CONFIG, or ashore/config under the user's config
+// configPath is WHERRY_CONFIG, or wherry/config under the user's config
 // directory (XDG_CONFIG_HOME, ~/.config).
 func (c *cli) configPath() (string, error) {
-	if p := c.getenv("ASHORE_CONFIG"); p != "" {
+	if p := c.getenv("WHERRY_CONFIG"); p != "" {
 		return p, nil
 	}
 	if x := c.getenv("XDG_CONFIG_HOME"); x != "" {
-		return filepath.Join(x, "ashore", "config"), nil
+		return filepath.Join(x, "wherry", "config"), nil
 	}
 	home := c.getenv("HOME")
 	if home == "" {
-		return "", errors.New("HOME is not set; set ASHORE_CONFIG")
+		return "", errors.New("HOME is not set; set WHERRY_CONFIG")
 	}
-	return filepath.Join(home, ".config", "ashore", "config"), nil
+	return filepath.Join(home, ".config", "wherry", "config"), nil
 }
 
 // client builds the API client from the environment or the config file.
 func (c *cli) client() (*api.Client, error) {
-	if url, token := c.getenv("ASHORE_URL"), c.getenv("ASHORE_TOKEN"); url != "" && token != "" {
+	if url, token := c.getenv("WHERRY_URL"), c.getenv("WHERRY_TOKEN"); url != "" && token != "" {
 		return &api.Client{URL: url, Token: token}, nil
 	}
 	path, err := c.configPath()
@@ -124,13 +124,13 @@ func (c *cli) client() (*api.Client, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return nil, errors.New("not logged in: run ashore login <url> <token>")
+			return nil, errors.New("not logged in: run wherry login <url> <token>")
 		}
 		return nil, err
 	}
 	var s settings
 	if err := json.Unmarshal(data, &s); err != nil || s.URL == "" || s.Token == "" {
-		return nil, fmt.Errorf("%s: not a login file; run ashore login again", path)
+		return nil, fmt.Errorf("%s: not a login file; run wherry login again", path)
 	}
 	return &api.Client{URL: s.URL, Token: s.Token}, nil
 }

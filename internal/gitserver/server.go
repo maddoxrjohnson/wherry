@@ -24,9 +24,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
-	"github.com/maddoxrjohnson/ashore/internal/serve"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/serve"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // Store is the slice of the database the server needs.
@@ -52,8 +52,8 @@ const (
 	// the client disappears or the daemon shuts down.
 	stopGrace = 5 * time.Second
 
-	extKeyName     = "ashore-key-name"
-	extFingerprint = "ashore-fingerprint"
+	extKeyName     = "wherry-key-name"
+	extFingerprint = "wherry-fingerprint"
 )
 
 // Server serves git over SSH. Create it with New and run it with Serve.
@@ -98,7 +98,7 @@ func New(st Store, hooks Hooks, dataDir, hostKeyPath string, log *slog.Logger) (
 	}
 	s.config = &ssh.ServerConfig{
 		PublicKeyCallback: s.authenticate,
-		ServerVersion:     "SSH-2.0-ashore",
+		ServerVersion:     "SSH-2.0-wherry",
 	}
 	s.config.AddHostKey(signer)
 	log.Info("ssh host key", "path", hostKeyPath, "fingerprint", s.Fingerprint, "created", created)
@@ -222,7 +222,7 @@ func (s *Server) exec(ctx context.Context, ch ssh.Channel, command, fp string) {
 	code, err := s.run(ctx, ch, command, fp)
 	if err != nil {
 		s.log.Warn("ssh exec refused", "fingerprint", fp, "command", command, "err", err)
-		_, _ = fmt.Fprintf(ch.Stderr(), "ashore: %v\n", err)
+		_, _ = fmt.Fprintf(ch.Stderr(), "wherry: %v\n", err)
 	}
 	_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{uint32(code)}))
 }
@@ -245,11 +245,11 @@ func (s *Server) run(ctx context.Context, ch ssh.Channel, command, fp string) (i
 	}
 	s.log.Info("git", "service", service, "app", app, "fingerprint", fp)
 
-	env := []string{"ASHORE_APP=" + app}
+	env := []string{"WHERRY_APP=" + app}
 	if service == "receive-pack" { // only a push runs the hook
 		nonce, revoke := s.hooks.Issue(app)
 		defer revoke()
-		env = append(env, "ASHORE_SOCK="+s.hooks.Socket(), "ASHORE_NONCE="+nonce)
+		env = append(env, "WHERRY_SOCK="+s.hooks.Socket(), "WHERRY_NONCE="+nonce)
 	}
 	cmd := exec.CommandContext(ctx, "git", service, repo)
 	cmd.Env = gitcmd.Env(env...)

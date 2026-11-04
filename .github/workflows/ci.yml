@@ -26,4 +26,4 @@ jobs:
       - name: test
         run: go test -race -count=1 ./...
       - name: build
-        run: make build && ./bin/ashored --version
+        run: make build && ./bin/wherryd --version

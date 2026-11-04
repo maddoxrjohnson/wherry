@@ -1,4 +1,4 @@
-// Package manifest reads ashore.toml, the optional file at the root of a
+// Package manifest reads wherry.toml, the optional file at the root of a
 // pushed repository that says how the app is checked and run: the health
 // check (TCP connect by default, or an HTTP GET path), how long to wait for
 // it, and the process limits. A repository without the file gets the
@@ -19,11 +19,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
 )
 
 // FileName is where the manifest lives in the repository.
-const FileName = "ashore.toml"
+const FileName = "wherry.toml"
 
 // Manifest is the effective configuration of one release's instances.
 type Manifest struct {
@@ -56,7 +56,7 @@ type Defaults struct {
 	CPU      float64
 }
 
-// Default is the manifest of a repository with no ashore.toml.
+// Default is the manifest of a repository with no wherry.toml.
 func Default(d Defaults) Manifest {
 	return Manifest{
 		Health:  Health{Timeout: Duration(d.Timeout), Interval: Duration(d.Interval)},
@@ -147,7 +147,7 @@ func (m Manifest) String() string {
 		check, m.Health.Timeout, m.Process.Memory, m.Process.CPU, m.Process.Grace)
 }
 
-// ReadRepo returns the raw ashore.toml of a commit, or found false when the
+// ReadRepo returns the raw wherry.toml of a commit, or found false when the
 // commit has none. quarantine is GIT_QUARANTINE_PATH while a pre-receive
 // hook runs, when the pushed objects are not in the repository yet.
 // The supervisor takes this function as its seam, so its tests supply the

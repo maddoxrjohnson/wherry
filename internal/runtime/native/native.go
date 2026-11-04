@@ -20,7 +20,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/runtime"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 )
 
 // Runtime runs instances as re-executed children of the daemon in their
@@ -41,7 +41,7 @@ var _ runtime.Runtime = (*Runtime)(nil)
 // New returns a runtime keeping its state under <dataDir>/instances and
 // exporting images under <dataDir>/rootfs. cgroupRoot is where instance
 // cgroups are made (a directory on the cgroup v2 filesystem, such as
-// /sys/fs/cgroup/ashore); it is used when the daemon is root and the
+// /sys/fs/cgroup/wherry); it is used when the daemon is root and the
 // filesystem is cgroup v2, and limits are not enforced otherwise. Without
 // root the runtime is rootless: every instance lives in a user namespace
 // where it is root while the host sees the daemon's user.

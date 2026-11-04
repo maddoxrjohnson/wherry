@@ -40,12 +40,12 @@ func (s Site) AppURL(host string) string {
 func (s Site) RemoteURL(app string) string {
 	host, port, err := net.SplitHostPort(s.SSHAddr)
 	if err != nil {
-		return "ssh://ashore@" + s.Domain + "/" + app
+		return "ssh://wherry@" + s.Domain + "/" + app
 	}
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = s.Domain
 	}
-	return "ssh://ashore@" + net.JoinHostPort(host, port) + "/" + app
+	return "ssh://wherry@" + net.JoinHostPort(host, port) + "/" + app
 }
 
 // PortOf returns the port of a listen address such as ":8080" or

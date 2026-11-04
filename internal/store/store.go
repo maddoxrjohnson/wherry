@@ -1,6 +1,6 @@
 // Package store is the daemon's SQLite database: apps, their SSH keys,
 // releases, and config vars, with the schema kept up to date by embedded
-// migrations. Every SQL statement in ashore lives here.
+// migrations. Every SQL statement in wherry lives here.
 package store
 
 import (

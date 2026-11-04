@@ -21,7 +21,7 @@ if (pre) {
     var l = JSON.parse(e.data);
     var div = document.createElement("div");
     div.className = l.stream;
-    var who = l.stream === "ashore" ? "ashore" : l.release;
+    var who = l.stream === "wherry" ? "wherry" : l.release;
     div.textContent = new Date(l.time).toLocaleTimeString() + " " + who + "[" + l.stream + "]: " + l.text;
     var atBottom = pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 4;
     pre.appendChild(div);

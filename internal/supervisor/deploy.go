@@ -11,11 +11,11 @@ import (
 	"runtime/debug"
 	"time"
 
-	"github.com/maddoxrjohnson/ashore/internal/builder"
-	"github.com/maddoxrjohnson/ashore/internal/gitcmd"
-	"github.com/maddoxrjohnson/ashore/internal/gitserver"
-	"github.com/maddoxrjohnson/ashore/internal/manifest"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/builder"
+	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
+	"github.com/maddoxrjohnson/wherry/internal/gitserver"
+	"github.com/maddoxrjohnson/wherry/internal/manifest"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // deploy is one run of the algorithm; the error it returns is the last line
@@ -37,7 +37,7 @@ func (a *actor) deploy(cmd deployCmd) (err error) {
 		return err
 	}
 
-	// What the release is made of. A push has a commit, its ashore.toml,
+	// What the release is made of. A push has a commit, its wherry.toml,
 	// and no image yet; a redeploy reuses the live release's image, commit,
 	// and manifest. Both snapshot the config vars as they are now, so the
 	// row says exactly what ran. A manifest that does not parse is refused
@@ -271,7 +271,7 @@ func (s *Supervisor) acquireBuild(ctx context.Context, out io.Writer) error {
 	}
 }
 
-// defaults are the manifest values for what an app's ashore.toml leaves out.
+// defaults are the manifest values for what an app's wherry.toml leaves out.
 func (s *Supervisor) defaults() manifest.Defaults {
 	return manifest.Defaults{
 		Timeout: s.cfg.HealthTimeout, Interval: healthEvery, Grace: s.cfg.StopGrace,

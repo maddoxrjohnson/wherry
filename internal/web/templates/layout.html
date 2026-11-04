@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ashore</title>
+<title>wherry</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 <header>
-  <a class="brand" href="/">ashore</a>
+  <a class="brand" href="/">wherry</a>
   {{if ne .Page "login"}}<form method="post" action="/logout"><button type="submit">log out</button></form>{{end}}
 </header>
 <main>
 {{template "content" .}}
 </main>
-<footer>ashored {{.Version}}</footer>
+<footer>wherryd {{.Version}}</footer>
 <script src="/static/app.js"></script>
 </body>
 </html>{{end}}

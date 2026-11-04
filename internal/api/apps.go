@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/maddoxrjohnson/ashore/internal/gitserver"
-	"github.com/maddoxrjohnson/ashore/internal/store"
+	"github.com/maddoxrjohnson/wherry/internal/gitserver"
+	"github.com/maddoxrjohnson/wherry/internal/store"
 )
 
 // App is an app as the API shows it.

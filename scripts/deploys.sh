@@ -7,7 +7,7 @@
 #   sh scripts/deploys.sh /path/to/slowstart-checkout 10
 #   kill -INT %1; wait
 #
-# The repository must already have the ashore remote and a first push behind it.
+# The repository must already have the wherry remote and a first push behind it.
 set -eu
 repo=${1:?usage: deploys.sh <repo> [count]}
 count=${2:-10}
@@ -18,6 +18,6 @@ while [ "$i" -le "$count" ]; do
   date +%s.%N > deploy.txt
   git add deploy.txt
   git commit -q -m "deploy $i"
-  git push ashore main 2>&1 | grep -E 'remote: ----->|rejected' || true
+  git push wherry main 2>&1 | grep -E 'remote: ----->|rejected' || true
   i=$((i + 1))
 done
