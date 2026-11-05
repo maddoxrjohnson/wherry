@@ -1,0 +1,204 @@
+#!/bin/sh
+# Installs a wherry release on this box and puts the old one back if the new
+# daemon does not come up healthy. Run it as root: wherry-update vX.Y.Z
+#
+# It is also the forced command of a restricted SSH key, and then the version
+# is whatever the client asked to run. That string is the only thing taken from
+# the client, and it is checked before it is used for anything.
+set -eu
+
+# Bracket ranges in the checks below mean ASCII only in the C locale.
+export LC_ALL=C
+
+# This assumes the upstream repository and the default WHERRY_INTERNAL_ADDR. A
+# fork or a box that moves the internal listener has to change these two lines.
+base=https://github.com/maddoxrjohnson/wherry/releases/download
+health_url=http://127.0.0.1:9000/healthz
+bin_dir=/usr/local/bin
+unit_dir=/etc/systemd/system
+lock=/run/wherry-update.lock
+health_wait=60
+health_steady=10
+
+# The WHERRY_* settings move what this touches off the real paths, for trying
+# it somewhere other than a live box. A forced command never reads them. sshd
+# would have to be told to accept them from a client, which it is not, but this
+# runs as root and an update has no use for them, so the question never comes up.
+forced=
+if [ -n "${SSH_ORIGINAL_COMMAND+set}" ]; then
+  forced=yes
+  version=$SSH_ORIGINAL_COMMAND
+else
+  version=${1:-}
+  bin_dir=${WHERRY_BIN_DIR:-$bin_dir}
+  unit_dir=${WHERRY_UNIT_DIR:-$unit_dir}
+  lock=${WHERRY_UPDATE_LOCK:-$lock}
+  health_wait=${WHERRY_HEALTH_WAIT:-$health_wait}
+  health_steady=${WHERRY_HEALTH_STEADY:-$health_steady}
+fi
+
+# A failed write must not end the run. See the trap below.
+# The journal keeps the result when the SSH client that started this is gone.
+say() {
+  printf 'wherry-update: %s\n' "$*" || :
+  logger -t wherry-update -- "$*" 2>/dev/null || :
+}
+die() {
+  printf 'wherry-update: %s\n' "$*" >&2 || :
+  logger -t wherry-update -- "$*" 2>/dev/null || :
+  exit 1
+}
+
+# grep alone is not enough: it matches a line at a time, so a string with one
+# good line among several would pass.
+is_tag() {
+  case $1 in
+    *[!0-9A-Za-z.-]*) return 1 ;;
+  esac
+  printf '%s\n' "$1" | grep -Eqx 'v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?'
+}
+is_tag "$version" || die "version must look like v1.2.3 or v1.2.3-rc1"
+
+# higher a b: a sorts strictly after b.
+higher() {
+  [ "$1" != "$2" ] && [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n 1)" = "$1" ]
+}
+
+# is_newer a b: release tag a comes after release tag b. sort -V alone puts
+# v0.2.0 before v0.2.0-rc1, the wrong way round, so the part after the hyphen
+# is handled apart: a final release beats any pre-release of the same version.
+is_newer() {
+  a=${1%%-*} b=${2%%-*}
+  if [ "$a" != "$b" ]; then
+    higher "$a" "$b"
+    return
+  fi
+  a_pre=${1#"$a"} b_pre=${2#"$b"}
+  if [ -z "$a_pre" ]; then
+    [ -n "$b_pre" ]
+    return
+  fi
+  [ -n "$b_pre" ] && higher "$a_pre" "$b_pre"
+}
+
+# Once the old daemon is stopped this has to run to the end, rollback included,
+# so a dropped SSH connection must not take it down halfway.
+trap '' HUP PIPE
+
+exec 9>"$lock"
+flock -n 9 || die "another update is running"
+
+arch=$(dpkg --print-architecture)
+name=wherry_${version}_linux_$arch
+for file in wherryd wherry; do
+  [ -x "$bin_dir/$file" ] || die "$bin_dir/$file is missing, so there would be nothing to roll back to"
+done
+old=$("$bin_dir/wherryd" --version)
+
+# A stolen deploy key must not be able to walk the box back to a version with a
+# known hole. A hand-built binary has no tag to compare, and a person at the
+# keyboard can still go back.
+installed=${old#wherryd }
+if [ -n "$forced" ] && is_tag "$installed" && ! is_newer "$version" "$installed"; then
+  die "refusing $version: $installed is installed and this key only moves forward"
+fi
+
+work=$(mktemp -d)
+trap 'rm -rf "${work:?}"' EXIT
+trap 'exit 1' INT TERM
+cd "$work"
+
+fetch() {
+  curl -fsSL --connect-timeout 10 --max-time 60 --retry 3 --retry-all-errors --retry-delay 5 \
+    -o "$1" "$base/$version/$1"
+}
+fetch "$name.tar.gz"
+fetch SHA256SUMS
+
+# Check against this one line, so a list without the tarball fails rather than
+# passing with nothing checked.
+awk -v file="$name.tar.gz" '$2 == file' SHA256SUMS >checksum
+[ -s checksum ] || die "SHA256SUMS has no entry for $name.tar.gz"
+sha256sum --check --strict --quiet checksum
+
+tar -xzf "$name.tar.gz"
+for file in wherryd wherry wherry-update wherry-backup \
+  wherryd.service wherry-backup.service wherry-backup.timer; do
+  [ -f "$name/$file" ] || die "$version does not ship $file"
+done
+new=$("$name/wherryd" --version)
+
+# Rename into place, never write over: this script may be replacing itself, sh
+# reads a script as it runs, and the old inode has to stay as it is.
+put() {
+  install -m "$3" "$1" "$2.new" && mv -f "$2.new" "$2"
+}
+
+answers() { curl -fsS -m 3 -o /dev/null "$health_url" 2>/dev/null; }
+restarts() { systemctl show -p NRestarts wherryd; }
+
+# Ready is not enough: it has to stay up. Once it first answers, a single miss
+# or an automatic restart in the steady window counts as failed.
+healthy() {
+  say "waiting up to ${health_wait}s for the daemon, then ${health_steady}s to see it stay up"
+  end=$(($(date +%s) + health_wait))
+  until answers; do
+    [ "$(date +%s)" -lt "$end" ] || return 1
+    sleep 2
+  done
+  count=$(restarts)
+  end=$(($(date +%s) + health_steady))
+  while [ "$(date +%s)" -lt "$end" ]; do
+    sleep 1
+    answers || return 1
+    [ "$(restarts)" = "$count" ] || return 1
+  done
+}
+
+# Migrations run when the new daemon starts and cannot be undone, so nothing
+# changes until there is a copy to go back to. Oneshot, so this waits for it. A
+# box set up by hand may not have the unit yet, and that should not block it.
+if [ -f "$unit_dir/wherry-backup.service" ]; then
+  say "backing up first"
+  systemctl start wherry-backup || die "backup failed, nothing was changed"
+else
+  say "warning: wherry-backup is not installed, updating without a backup"
+fi
+
+# An interrupt from here on would skip the rollback.
+trap '' INT TERM
+
+say "updating $old to $new"
+put "$bin_dir/wherryd" "$bin_dir/wherryd.prev" 0755
+put "$bin_dir/wherry" "$bin_dir/wherry.prev" 0755
+cp -p "$unit_dir/wherryd.service" old.service
+
+# set -e does nothing inside an if condition, which is why these are && chains.
+if ! {
+  put "$name/wherryd" "$bin_dir/wherryd" 0755 &&
+    put "$name/wherry" "$bin_dir/wherry" 0755 &&
+    put "$name/wherryd.service" "$unit_dir/wherryd.service" 0644 &&
+    systemctl daemon-reload &&
+    systemctl restart wherryd &&
+    healthy
+}; then
+  say "$new failed its health check, rolling back to $old"
+  if put "$bin_dir/wherryd.prev" "$bin_dir/wherryd" 0755 &&
+    put "$bin_dir/wherry.prev" "$bin_dir/wherry" 0755 &&
+    put old.service "$unit_dir/wherryd.service" 0644 &&
+    systemctl daemon-reload &&
+    systemctl restart wherryd &&
+    healthy; then
+    die "rolled back: $old is running, $version was not installed"
+  fi
+  die "ROLLBACK FAILED: $old did not come back either, see journalctl -u wherryd"
+fi
+
+# Last, so a release that fails leaves nothing of itself behind.
+put "$name/wherry-update" "$bin_dir/wherry-update" 0755
+put "$name/wherry-backup" "$bin_dir/wherry-backup" 0755
+put "$name/wherry-backup.service" "$unit_dir/wherry-backup.service" 0644
+put "$name/wherry-backup.timer" "$unit_dir/wherry-backup.timer" 0644
+systemctl daemon-reload
+
+say "updated $old to $new"

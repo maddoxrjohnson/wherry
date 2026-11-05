@@ -293,7 +293,42 @@ Go 1.27 or newer and make.
 
 `./bin/wherryd --version` prints the version stamped at build time.
 
-## Running it under systemd
+## Self-hosting
+
+This is how I run wherry on one server: Terraform builds the box, systemd runs the daemon, and a
+couple of small scripts update and back it up. Everything below assumes `apps.example.com` for
+the apps and `example.com` for the dashboard.
+
+### Creating the server
+
+I build the whole box with `deploy/terraform/hetzner`: a server, an SSH key, a firewall, and a
+first boot that installs Docker and git, verifies a release against its checksums, and starts
+the unit. Port 22 is open only to the addresses in `admin_cidrs`, and a server built this way has
+password login off, so only a key gets in.
+
+    export HCLOUD_TOKEN=...
+    cd deploy/terraform/hetzner
+    cp terraform.tfvars.example terraform.tfvars
+    terraform init
+    terraform apply
+    ssh root@<ip> cloud-init status --wait
+
+The last line matters. `terraform apply` finishes when the server exists, before first boot
+does, so only `cloud-init status` says whether the install worked. If SSH refuses the connection,
+the box is still booting, so try again. Otherwise a non-zero exit means the install failed:
+`/var/log/cloud-init-output.log` has the reason, or `journalctl -u wherryd` if the daemon would
+not start.
+
+`release_version` has to be a published release that ships `wherry-update` and `wherry-backup`;
+an older one fails first boot. First boot only happens once, so Terraform ignores later changes
+to anything it feeds, along with the image and SSH key, rather than replacing the server and
+losing its data disk. To retry a failed first boot, use
+`terraform apply -replace=hcloud_server.wherry`. To change the domain, email, or dashboard host
+on a running box, edit `/etc/wherry/env` and restart the unit.
+
+The default is a CAX11, which is arm64; the release architecture follows the server type.
+
+### Running it under systemd
 
 `deploy/systemd/wherryd.service` is the unit I deploy with. It expects the binary at
 `/usr/local/bin/wherryd`, reads `/etc/wherry/env` (see `wherry.env.example`), keeps its data
@@ -309,36 +344,216 @@ That also means the unit is Docker-only. The native runtime needs the capabiliti
 namespaces, and cgroup access this unit removes, so it is something I run by hand with
 `sudo -E ./bin/wherryd` on a test box, not under systemd.
 
-Each `v*` tag builds `linux/amd64` and `linux/arm64` tarballs with both binaries and the
-unit, and attaches them to a GitHub release. Tags with a hyphen, like `v0.1.0-rc1`, become
-pre-releases. `make dist` builds the same tarballs locally.
+Each `v*` tag builds `linux/amd64` and `linux/arm64` tarballs with both binaries, the units,
+and the scripts in `deploy/scripts`, and attaches them to a GitHub release. Tags with a hyphen,
+like `v0.1.0-rc1`, become pre-releases. `make dist` builds the same tarballs locally.
 
-## Creating the server
+### DNS
 
-I build the whole box with `deploy/terraform/hetzner`: a server, an SSH key, a firewall, and a
-first boot that installs Docker and git, verifies a release against its checksums, and starts
-the unit. Port 22 is open only to the addresses in `admin_cidrs`.
+Three records, all pointing at the `ipv4_address` Terraform prints:
 
-    export HCLOUD_TOKEN=...
-    cd deploy/terraform/hetzner
-    cp terraform.tfvars.example terraform.tfvars
-    terraform init
-    terraform apply
-    ssh root@<ip> cloud-init status --wait
+| Name | Type | What it is for |
+|---|---|---|
+| `apps` | `A` | `WHERRY_DOMAIN`, and the name in the git remote |
+| `*.apps` | `A` | every app, as `<app>.apps.example.com` |
+| `@` | `A` | the dashboard, when `WHERRY_DASHBOARD_HOST=example.com` |
 
-The last line matters. `terraform apply` finishes when the server exists, before first boot
-does, so only `cloud-init status` says whether the install worked. If SSH refuses the connection,
-the box is still booting, so try again. Otherwise a non-zero exit means the install failed:
-`/var/log/cloud-init-output.log` has the reason, or `journalctl -u wherryd` if the daemon would
-not start.
+All three have to be DNS only. If your DNS host offers a proxy, as Cloudflare does, leave it off:
+git uses port 2222, which is not HTTP, and the daemon gets the certificates and ends TLS itself.
+`dashboard_host` in `terraform.tfvars` sets `WHERRY_DASHBOARD_HOST`. Leave it empty and the
+dashboard stays on the internal listener, and the `@` record is not needed. Certificates come
+from Let's Encrypt on the first request to each name, so that first request is slow.
 
-`release_version` has to be a published release. First boot only happens once, so Terraform
-ignores later changes to anything it feeds, along with the image and SSH key, rather than
-replacing the server and losing its data disk. To retry a failed first boot, use
-`terraform apply -replace=hcloud_server.wherry`. To change the domain, email, or dashboard host
-on a running box, edit `/etc/wherry/env` and restart the unit.
+### First run
 
-The default is a CAX11, which is arm64; the release architecture follows the server type.
+The daemon writes an admin token on its first start. The API never leaves the box, so I reach
+it through an SSH tunnel and log my local CLI in with that token:
+
+    ssh root@<ip> cat /var/lib/wherry/admin.token
+    ssh -N -L 9000:127.0.0.1:9000 root@<ip> &
+    wherry login http://127.0.0.1:9000 <token>
+
+Then add the key I push with, create an app, and push it:
+
+    wherry keys:add me ~/.ssh/id_ed25519.pub
+    wherry apps:create hello
+    git remote add wherry ssh://wherry@apps.example.com:2222/hello
+    git push wherry main
+    curl https://hello.apps.example.com/
+
+Admin SSH stays on port 22 and git SSH on 2222, so a broken daemon never locks me out of the box.
+
+### Logs and metrics
+
+    wherry logs hello -f                    # the app's output, through the tunnel
+    ssh root@<ip> journalctl -u wherryd -f  # the daemon's own log
+    curl http://127.0.0.1:9000/metrics      # Prometheus metrics, through the tunnel
+
+### Updating
+
+    ssh root@<ip> wherry-update v0.2.0
+
+`wherry-update` downloads the release, checks it against `SHA256SUMS`, and runs `wherry-backup`,
+stopping there if the backup fails. Then it keeps the current binaries as `wherryd.prev` and
+`wherry.prev` in `/usr/local/bin`, installs the new ones and the unit, and restarts the daemon. The
+daemon gets up to 60 seconds to answer `/healthz`, and then has to keep answering for 10 more
+without systemd restarting it. If it does not, the old binaries and unit go back, the same check
+runs again, and the script exits non-zero saying it rolled back. The new scripts and backup units
+only go in once the new daemon has passed. It takes a lock, so two updates cannot overlap, and once
+the swap starts it ignores interrupts, so it cannot stop short of the rollback. Apps keep running
+through all of this, and the new daemon adopts them when it starts.
+
+The rollback puts the binaries back, not the database. Migrations run when the new daemon starts,
+and the old daemon ignores any it does not know. They are forward-only, which is why the backup
+comes first: if a release changes the schema and the old daemon cannot live with it, that backup
+is the way back.
+
+A box built before these scripts existed needs three things by hand, in this order. Password login
+comes first, before `admin_cidrs` is widened, because only a new server gets it from Terraform:
+
+    printf 'PasswordAuthentication no\n' > /etc/ssh/sshd_config.d/10-wherry.conf
+    sshd -t
+    systemctl reload ssh
+    sshd -T | grep -i '^passwordauthentication'    # must say no
+
+Next, fetch `wherry-update` once from a release's tarball, install it to `/usr/local/bin`, and run
+it. That first update warns that it has no backup to take, which is expected: the old binary has
+no `wherryd backup`, so the backup unit cannot work until the new one is in. Afterwards it is
+installed, so turn the timer on and check it works, because later updates stop if it does not:
+
+    systemctl enable --now wherry-backup.timer
+    systemctl start wherry-backup
+
+The same update can run from GitHub, through the `deploy` workflow: Actions, deploy, Run workflow,
+and type the version. GitHub's runners have no fixed address, so this needs `admin_cidrs` set to
+`["0.0.0.0/0", "::/0"]`. Port 22 is then open to the world, so password login has to be off first,
+and the workflow gets a key of its own that can only do one thing. Make it somewhere outside the
+repository:
+
+    ssh-keygen -t ed25519 -N '' -C wherry-deploy -f ~/.ssh/wherry_deploy
+
+Add the public half to `/root/.ssh/authorized_keys` on the server, as one line:
+
+    command="/usr/local/bin/wherry-update",restrict ssh-ed25519 AAAA... wherry-deploy
+
+`command=` means sshd runs `wherry-update` whatever the client asked for and hands the request
+over in `SSH_ORIGINAL_COMMAND`, where the script accepts a version number and nothing else.
+`restrict` turns off port, agent, and X11 forwarding, PTY allocation, and `~/.ssh/rc`, along with
+anything later added to that set.
+
+If this key leaks, it can install any published release with a higher version number than the one
+running, pre-releases included. Order is by version, not by date, and the check is skipped when the
+running binary has no release version, as a hand-built one doesn't. A newer release that fails its
+health check can be retried forever: each try restarts the daemon twice and takes a backup, so seven
+tries rotate out the older backups. None of this protects against a bad release. `SHA256SUMS` lives in the same GitHub
+release as the tarballs, so it catches a corrupted download, not a release someone tampered with.
+Running `wherry-update` by hand as root can still go back to an older version.
+
+The secret and variables live in a GitHub environment rather than on the repository, so that only
+`main` can reach them. Anyone who can push a branch can run a workflow from it, including an edited
+copy of this one. In the repository's Settings, under Environments, create `production`, and under
+Deployment branches and tags choose Selected branches and add `main`.
+
+Then give that environment the key and the address, and pin the host key. `ssh-keyscan` trusts
+whatever answers, so run it once from a machine you trust and check the fingerprint against the
+server's own, through the login you already have:
+
+    ssh-keyscan -t ed25519 <ip> > known_hosts
+    ssh-keygen -lf known_hosts
+    ssh root@<ip> ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+
+    gh secret set DEPLOY_SSH_KEY --env production < ~/.ssh/wherry_deploy
+    gh variable set DEPLOY_HOST --env production --body <ip>
+    gh variable set DEPLOY_KNOWN_HOSTS --env production < known_hosts
+
+The name you scan has to be the same as `DEPLOY_HOST`. The workflow never scans anything itself,
+so a rebuilt server fails the deploy until `DEPLOY_KNOWN_HOSTS` is updated, which is the point.
+
+### Backups
+
+`wherry-backup.timer` runs `/usr/local/bin/wherry-backup` once a day, with a catch-up run if the
+box was off. To run it now, and to see when it runs next:
+
+    ssh root@<ip> systemctl start wherry-backup
+    ssh root@<ip> systemctl list-timers wherry-backup.timer
+
+Each run writes `/var/backups/wherry/wherry-<UTC timestamp>.tar.gz` and keeps the newest 7, or
+`WHERRY_BACKUP_KEEP`. It works with the daemon running. The database goes through
+`wherryd backup <file>`, which uses `VACUUM INTO`, because a plain copy of a database in WAL mode
+can be torn. The rest of the data directory is tarred around it: the git repositories, the
+certificates, the admin token, the SSH host key, and the app logs. It leaves out what the daemon
+makes again or does not need: the hook script and socket, build logs, and the native runtime's
+`rootfs` and `instances`.
+
+A backup on the same disk is not a backup, so copy them off the box:
+
+    scp root@<ip>:/var/backups/wherry/wherry-<stamp>.tar.gz .
+
+Treat that file as a secret. It holds the admin token, the SSH host key, the TLS keys, and every
+app's config values, none of them encrypted. It does not hold `/etc/wherry/env`, which Terraform
+writes, and it does not hold any images.
+
+### Restoring
+
+On the server, with the backup copied back:
+
+    systemctl stop wherryd
+    mv /var/lib/wherry /var/lib/wherry.old
+    install -d -m 0700 /var/lib/wherry
+    tar -xzpf wherry-<stamp>.tar.gz -C /var/lib/wherry
+    for repo in /var/lib/wherry/repos/*.git; do [ -d "$repo" ] || continue; git -C "$repo" fsck --connectivity-only || echo "BROKEN: $repo"; done
+    systemctl start wherryd
+    journalctl -u wherryd -n 20
+
+Move the old directory aside rather than unpacking over it, because a leftover `wherry.db-wal` must
+not sit next to the restored database. It has to go back to `/var/lib/wherry`: each repository
+records the full path to the hook directory, so anywhere else pushes will not run the hook.
+
+The `fsck` is there because the database is a snapshot but the tar of the repositories is not. A
+push that lands during a backup can leave a ref pointing at objects the tar never picked up.
+`--connectivity-only` follows every ref without reading every object's contents, so it is quick.
+If one reports a problem, the app's history is in my working copy anyway. A plain push would say
+"Everything up-to-date", because the ref still looks current, so delete the ref first and push
+again once the daemon is up:
+
+    git -C /var/lib/wherry/repos/<app>.git update-ref -d refs/heads/main
+
+What happens next depends on Docker. On the same box the containers are still there, and the
+daemon adopts the ones the backup knows about and stops any others. On a new box there are no
+images, because they were never in the backup, and the daemon does not rebuild anything by itself.
+It tries to start each live release once, logs `restart at reconcile` with `No such image`, and
+moves on. That app has no route, so the router answers 404. `wherry ps` keeps saying `starting`,
+and `wherry restart` fails the same way. Its repository and config are safe, so one push brings it
+back. It has to be a new commit, because git has nothing to send otherwise:
+
+    git commit --allow-empty -m "rebuild after restore"
+    git push wherry main
+
+A new server has a new IP and new SSH host keys on port 22, so update DNS, then `DEPLOY_HOST` and
+`DEPLOY_KNOWN_HOSTS` in the `production` environment. `/root/.ssh/authorized_keys` is not in the
+backup, so add the deploy key's line back too. The git host key on port 2222 does come back from
+the backup, so existing remotes keep working.
+
+### Pruning images
+
+Every build leaves an image, and nothing removes them on its own. Dangling layers and the build
+cache are safe to clear, at the cost of a slower next build:
+
+    docker image prune -f
+    docker builder prune -f
+
+This keeps the newest 5 `wherry/<app>` tags of each app:
+
+    docker images --format '{{.Repository}}' | grep '^wherry/' | sort -u | while read -r repo; do docker images "$repo" --format '{{.Repository}}:{{.Tag}}' | tail -n +6 | xargs -r docker rmi; done
+
+Docker refuses to remove an image a container is using, so a running app is safe even if its image
+is old, and it prints a `conflict` error for that tag and carries on. Run this while the apps are
+up, since an app that is down holds nothing.
+
+Removing a tag removes that rollback target. `wherry releases:rollback hello v3` to a release whose
+image is gone still makes a new release, then Docker says `No such image`, that release ends as
+`failed`, and whatever was live keeps serving. Nothing rebuilds it. The way back to that code is
+to push it as a new commit.
 
 ## Configuration
 

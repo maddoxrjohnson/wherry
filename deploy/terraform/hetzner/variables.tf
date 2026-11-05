@@ -25,12 +25,12 @@ variable "dashboard_host" {
 }
 
 variable "release_version" {
-  description = "Release tag to install on first boot, such as v0.1.0-rc1. It must already be published."
+  description = "Release tag to install on first boot, such as v0.2.0. It must already be published and ship wherry-update and wherry-backup, or first boot fails."
   type        = string
 }
 
 variable "admin_cidrs" {
-  description = "Addresses allowed to reach admin SSH on port 22."
+  description = "Addresses allowed to reach admin SSH on port 22. The deploy workflow connects from GitHub's runners, so using it means [\"0.0.0.0/0\", \"::/0\"]. Servers built from this template have password login off."
   type        = list(string)
 }
 

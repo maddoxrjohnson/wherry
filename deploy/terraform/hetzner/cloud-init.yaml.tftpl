@@ -1,11 +1,17 @@
 #cloud-config
 package_update: true
+ssh_pwauth: false
 packages:
   - ca-certificates
   - curl
   - git
 
 write_files:
+  # sshd takes the first value it reads, so 10- beats cloud-init's own 50-.
+  - path: /etc/ssh/sshd_config.d/10-wherry.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
   - path: /etc/wherry/env
     permissions: "0600"
     content: |
@@ -22,7 +28,7 @@ write_files:
       #!/bin/sh
       set -eu
 
-      fetch='-fsSL --retry 5 --retry-all-errors --retry-delay 5'
+      fetch='-fsSL --connect-timeout 10 --max-time 300 --retry 5 --retry-all-errors --retry-delay 5'
       apt='-o Acquire::Retries=3 -o DPkg::Lock::Timeout=300'
 
       install -m 0755 -d /etc/apt/keyrings
@@ -44,10 +50,13 @@ write_files:
       cd "$work"
       curl $fetch -O "$base/$name.tar.gz"
       curl $fetch -O "$base/SHA256SUMS"
-      sha256sum -c --ignore-missing SHA256SUMS
+      # One line, so a list without the tarball fails instead of checking nothing.
+      awk -v file="$name.tar.gz" '$2 == file' SHA256SUMS > checksum
+      [ -s checksum ]
+      sha256sum --check --strict --quiet checksum
       tar -xzf "$name.tar.gz"
-      install -m 0755 "$name/wherryd" "$name/wherry" /usr/local/bin/
-      install -m 0644 "$name/wherryd.service" /etc/systemd/system/
+      install -m 0755 "$name/wherryd" "$name/wherry" "$name/wherry-update" "$name/wherry-backup" /usr/local/bin/
+      install -m 0644 "$name/wherryd.service" "$name/wherry-backup.service" "$name/wherry-backup.timer" /etc/systemd/system/
       cd /
       rm -rf "$work"
 
@@ -56,7 +65,9 @@ write_files:
 
       # enable returns as soon as the binary starts, so wait for the listeners.
       # Otherwise a daemon that exits at once still reads as a good first boot.
-      curl -fsS --retry 30 --retry-delay 2 --retry-all-errors -o /dev/null http://127.0.0.1:9000/healthz
+      curl -fsS -m 3 --retry 30 --retry-delay 2 --retry-all-errors -o /dev/null http://127.0.0.1:9000/healthz
+
+      systemctl enable --now wherry-backup.timer
 
 runcmd:
   - /root/install-wherry.sh

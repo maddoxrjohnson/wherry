@@ -9,7 +9,7 @@ build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/wherryd ./cmd/wherryd
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/wherry ./cmd/wherry
 
-# One tarball per architecture with both binaries and the unit file.
+# One tarball per architecture with both binaries, the units, and the scripts.
 dist:
 	rm -rf dist
 	set -e; for arch in amd64 arm64; do \
@@ -18,6 +18,7 @@ dist:
 			CGO_ENABLED=0 GOOS=linux GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' -o $$dir/$$cmd ./cmd/$$cmd; \
 		done; \
 		cp LICENSE deploy/systemd/wherryd.service deploy/systemd/wherry.env.example $$dir/; \
+		cp deploy/systemd/wherry-backup.service deploy/systemd/wherry-backup.timer deploy/scripts/* $$dir/; \
 		tar --owner=0 --group=0 --numeric-owner -czf $$dir.tar.gz -C dist $$(basename $$dir); \
 		rm -rf $$dir; \
 	done
