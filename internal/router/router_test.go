@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -479,5 +480,102 @@ func TestWebSocketPassthrough(t *testing.T) {
 		if string(got) != msg {
 			t.Fatalf("echo %q, want %q", got, msg)
 		}
+	}
+}
+
+// dashboard is an in-process route's handler that reports what it was given.
+func dashboard() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Echo-Id", r.Header.Get("X-Request-Id"))
+		w.Header().Set("Echo-Host", r.Host)
+		w.WriteHeader(http.StatusTeapot)
+		_, _ = io.WriteString(w, "dashboard")
+	})
+}
+
+func TestSetHandler(t *testing.T) {
+	obs := &fakeObserver{}
+	r, srv, logs := newRouterWith(t, Options{Observer: obs})
+	r.SetHandler("Dash.Example.com", "_dashboard", dashboard())
+	r.Set("hello.localhost", "hello", addrOf(newBackend(t, "app")))
+
+	if _, ok := r.Get("dash.example.com"); !ok {
+		t.Error("Get does not report the handler route")
+	}
+	resp := get(t, srv, "dash.example.com:8080", nil)
+	if got := body(t, resp); got != "dashboard" || resp.StatusCode != http.StatusTeapot {
+		t.Fatalf("handler route: %d %q", resp.StatusCode, got)
+	}
+	id := resp.Header.Get("X-Request-Id")
+	if id == "" || resp.Header.Get("Echo-Id") != id {
+		t.Errorf("request id: response %q, handler %q", id, resp.Header.Get("Echo-Id"))
+	}
+	if got := resp.Header.Get("Echo-Host"); got != "dash.example.com:8080" {
+		t.Errorf("handler saw Host %q", got)
+	}
+	if got := logs.String(); !strings.Contains(got, "app=_dashboard") || !strings.Contains(got, "id="+id) {
+		t.Errorf("no access log line:\n%s", got)
+	}
+	obs.mu.Lock() // logs.String gave the access line, written after the observer, time to land
+	if got := strings.Join(obs.requests, ","); got != "_dashboard 418" {
+		t.Errorf("observer saw %q", got)
+	}
+	obs.mu.Unlock()
+
+	if resp := get(t, srv, "hello.localhost", nil); body(t, resp) != "app" {
+		t.Error("the app route was disturbed")
+	}
+	if resp := get(t, srv, "other.example.com", nil); resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unknown host: %d", resp.StatusCode)
+	}
+}
+
+func TestSetHandlerBodyLimit(t *testing.T) {
+	r, srv, _ := newRouterWith(t, Options{MaxBody: 8})
+	r.SetHandler("dash.example.com", "_dashboard", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var tooBig *http.MaxBytesError
+		if _, err := io.ReadAll(req.Body); errors.As(err, &tooBig) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		}
+	}))
+	for _, tc := range []struct {
+		body string
+		want int
+	}{{"short", http.StatusOK}, {"longer than eight bytes", http.StatusRequestEntityTooLarge}} {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/", strings.NewReader(tc.body))
+		req.Host = "dash.example.com"
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("%q: %d, want %d", tc.body, resp.StatusCode, tc.want)
+		}
+	}
+}
+
+// A handler route that streams must flush through the router's recorder,
+// or the dashboard's live logs would sit in a buffer.
+func TestSetHandlerStreams(t *testing.T) {
+	r, srv, _ := newRouter(t)
+	r.SetHandler("dash.example.com", "_dashboard", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = io.WriteString(w, "first\n")
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			t.Error(err)
+		}
+		<-req.Context().Done()
+	}))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/", nil)
+	req.Host = "dash.example.com"
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if line, err := bufio.NewReader(resp.Body).ReadString('\n'); err != nil || line != "first\n" {
+		t.Fatalf("first line %q: %v", line, err)
 	}
 }

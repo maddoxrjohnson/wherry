@@ -3,6 +3,7 @@ package web
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
 	"io"
 	"log/slog"
 	"net/http"
@@ -33,6 +34,7 @@ type fixture struct {
 	store   *store.Store
 	hub     *logs.Hub
 	sup     *fakeSup
+	web     *Server
 	server  *httptest.Server
 	client  *http.Client // with a cookie jar, not following redirects
 	dataDir string
@@ -51,7 +53,9 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { _ = hub.Close() })
 	f := &fixture{store: st, hub: hub, sup: &fakeSup{status: map[string]supervisor.Status{}}, dataDir: dataDir}
 	cfg := Config{DataDir: dataDir, Site: site.Site{Domain: "localhost", SSHAddr: "127.0.0.1:2222", HTTPPort: 8080}, Version: "test"}
-	f.server = httptest.NewServer(New(st, f.sup, hub, token, cfg, slog.New(slog.NewTextHandler(io.Discard, nil))))
+	f.web = New(st, f.sup, hub, token, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	f.web.sessionCheck = 10 * time.Millisecond
+	f.server = httptest.NewServer(f.web)
 	t.Cleanup(f.server.Close)
 	jar, _ := cookiejar.New(nil)
 	f.client = &http.Client{Jar: jar, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -122,6 +126,229 @@ func TestLoginFlow(t *testing.T) {
 	}
 	if code, body, _ := f.get(t, "/static/app.js"); code != http.StatusOK || !strings.Contains(body, "EventSource") {
 		t.Fatalf("static: %d", code)
+	}
+}
+
+// postLogin sends a login straight to the handler, so a test can choose the
+// client's address.
+func (f *fixture) postLogin(body, remote string) *httptest.ResponseRecorder {
+	return f.postLoginFrom(body, remote, nil)
+}
+
+// postLoginFrom is postLogin with the headers a browser would add.
+func (f *fixture) postLoginFrom(body, remote string, hdr map[string]string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	req.RemoteAddr = remote
+	w := httptest.NewRecorder()
+	f.web.ServeHTTP(w, req)
+	return w
+}
+
+func TestCrossOriginPosts(t *testing.T) {
+	cases := []struct {
+		name string
+		hdr  map[string]string
+		want int
+	}{
+		{"same-origin", map[string]string{"Sec-Fetch-Site": "same-origin"}, http.StatusSeeOther},
+		{"typed in", map[string]string{"Sec-Fetch-Site": "none"}, http.StatusSeeOther},
+		{"curl", nil, http.StatusSeeOther},
+		{"origin is the host", map[string]string{"Origin": "http://127.0.0.1:9000"}, http.StatusSeeOther},
+		{"same-site", map[string]string{"Sec-Fetch-Site": "same-site"}, http.StatusForbidden},
+		{"cross-site", map[string]string{"Sec-Fetch-Site": "cross-site"}, http.StatusForbidden},
+		{"other origin", map[string]string{"Origin": "https://evil.example"}, http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("token="+token))
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Host = "127.0.0.1:9000" // the internal listener, as a tunnel shows it
+			for k, v := range tc.hdr {
+				req.Header.Set(k, v)
+			}
+			w := httptest.NewRecorder()
+			f.web.ServeHTTP(w, req)
+			if w.Code != tc.want {
+				t.Errorf("status %d, want %d", w.Code, tc.want)
+			}
+		})
+	}
+}
+
+func TestCrossOriginRefusalSpendsNoAttempt(t *testing.T) {
+	f := newFixture(t)
+	const client = "192.0.2.1:1234"
+	for range 2 * loginBurst {
+		w := f.postLoginFrom("token="+token, client, map[string]string{"Sec-Fetch-Site": "cross-site"})
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("cross-site login: %d", w.Code)
+		}
+	}
+	if w := f.postLogin("token="+token, client); w.Code != http.StatusSeeOther {
+		t.Fatalf("the operator's own login: %d", w.Code)
+	}
+}
+
+func TestCrossOriginLogoutKeepsTheSession(t *testing.T) {
+	f := newFixture(t)
+	if resp := f.login(t, token); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	req, _ := http.NewRequest(http.MethodPost, f.server.URL+"/logout", nil)
+	req.Header.Set("Sec-Fetch-Site", "same-site")
+	resp, err := f.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("same-site logout: %d", resp.StatusCode)
+	}
+	if code, _, _ := f.get(t, "/"); code != http.StatusOK {
+		t.Fatal("a refused logout ended the session")
+	}
+}
+
+func TestLoginLimit(t *testing.T) {
+	f := newFixture(t)
+	const client = "192.0.2.1:1234"
+	for i := range loginBurst {
+		if w := f.postLogin("token=wrong", client); w.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: %d", i+1, w.Code)
+		}
+	}
+	// The right token is refused too: the limit comes before the check.
+	w := f.postLogin("token="+token, "192.0.2.1:5678")
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("over the limit: %d", w.Code)
+	}
+	if got := w.Header().Get("Retry-After"); got != "30" {
+		t.Errorf("Retry-After = %q", got)
+	}
+	if !strings.Contains(w.Body.String(), "too many attempts") || !strings.Contains(w.Body.String(), `name="token"`) {
+		t.Errorf("no login page with the error:\n%s", w.Body)
+	}
+	if w.Header().Get("Set-Cookie") != "" {
+		t.Error("a refused login must not start a session")
+	}
+	if w := f.postLogin("token="+token, "192.0.2.2:1234"); w.Code != http.StatusSeeOther {
+		t.Fatalf("another client: %d", w.Code)
+	}
+}
+
+func TestLoginLimitCountsSuccessToo(t *testing.T) {
+	f := newFixture(t)
+	const client = "[2001:db8::1]:1234"
+	for i := range loginBurst {
+		if w := f.postLogin("token="+token, client); w.Code != http.StatusSeeOther {
+			t.Fatalf("attempt %d: %d", i+1, w.Code)
+		}
+	}
+	// Another address in the same /64 is the same client.
+	if w := f.postLogin("token="+token, "[2001:db8::2]:1234"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("over the limit: %d", w.Code)
+	}
+}
+
+func TestLoginBodyCap(t *testing.T) {
+	f := newFixture(t)
+	// The right token first, so only the cap can refuse it.
+	body := "token=" + token + "&pad=" + strings.Repeat("x", maxLoginBody)
+	if w := f.postLogin(body, "192.0.2.1:1234"); w.Code != http.StatusUnauthorized {
+		t.Fatalf("oversize body: %d", w.Code)
+	}
+	if w := f.postLogin("token="+token, "192.0.2.1:1234"); w.Code != http.StatusSeeOther {
+		t.Fatalf("right size: %d", w.Code)
+	}
+}
+
+func TestLogoutCookieMatchesSession(t *testing.T) {
+	f := newFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req.TLS = &tls.ConnectionState{}
+	w := httptest.NewRecorder()
+	f.web.ServeHTTP(w, req)
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("cookies: %+v", cookies)
+	}
+	c := cookies[0]
+	if c.Name != cookieName || !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.MaxAge >= 0 {
+		t.Fatalf("logout cookie: %+v", c)
+	}
+}
+
+func TestSecurityHeaders(t *testing.T) {
+	f := newFixture(t)
+	if resp := f.login(t, token); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	want := map[string]string{
+		"X-Frame-Options":         "DENY",
+		"X-Content-Type-Options":  "nosniff",
+		"Referrer-Policy":         "same-origin",
+		"Content-Security-Policy": "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+	}
+	for _, path := range []string{"/", "/login", "/static/style.css", "/nowhere"} {
+		_, _, resp := f.get(t, path)
+		for k, v := range want {
+			if got := resp.Header.Get(k); got != v {
+				t.Errorf("%s: %s = %q, want %q", path, k, got, v)
+			}
+		}
+		if got := resp.Header.Get("Strict-Transport-Security"); got != "" {
+			t.Errorf("%s: HSTS over plain HTTP: %q", path, got)
+		}
+	}
+	for path, want := range map[string]string{"/": "no-store", "/static/style.css": ""} {
+		_, _, resp := f.get(t, path)
+		if got := resp.Header.Get("Cache-Control"); got != want {
+			t.Errorf("%s: Cache-Control = %q, want %q", path, got, want)
+		}
+	}
+}
+
+func TestHSTSOnlyOverTLS(t *testing.T) {
+	f := newFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/login", nil)
+	req.TLS = &tls.ConnectionState{}
+	w := httptest.NewRecorder()
+	f.web.ServeHTTP(w, req)
+	if got := w.Header().Get("Strict-Transport-Security"); got != "max-age=31536000" {
+		t.Errorf("Strict-Transport-Security = %q", got)
+	}
+}
+
+func TestLoginPage(t *testing.T) {
+	f := newFixture(t)
+	code, body, resp := f.get(t, "/login")
+	if code != http.StatusOK {
+		t.Fatalf("login page: %d", code)
+	}
+	if got := resp.Header.Get("Cache-Control"); got != "no-store" {
+		t.Errorf("Cache-Control = %q", got)
+	}
+	if strings.Contains(body, "wherryd") {
+		t.Errorf("the login page gives the version away:\n%s", body)
+	}
+}
+
+// The handler is all a public dashboard host ever gets, so what it does not
+// route is what the public cannot reach.
+func TestNoInternalRoutes(t *testing.T) {
+	f := newFixture(t)
+	if resp := f.login(t, token); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	for _, path := range []string{"/api/apps", "/api/v1/apps", "/metrics", "/healthz"} {
+		if code, _, _ := f.get(t, path); code != http.StatusNotFound {
+			t.Errorf("%s: %d, want 404", path, code)
+		}
 	}
 }
 
@@ -237,5 +464,56 @@ func TestLogStream(t *testing.T) {
 	}
 	if fr := frame(); fr != "event: done\ndata: \n" {
 		t.Fatalf("after forget %q", fr)
+	}
+}
+
+func TestLogStreamEndsWithTheSession(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.store.CreateApp(context.Background(), "hello", "hello.localhost"); err != nil {
+		t.Fatal(err)
+	}
+	if resp := f.login(t, token); resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("login: %d", resp.StatusCode)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, f.server.URL+"/apps/hello/logs", nil)
+	resp, err := f.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stream: %d", resp.StatusCode)
+	}
+	out, err := f.client.Post(f.server.URL+"/logout", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out.Body.Close()
+	// Only a stream the server closed ends without the deadline's error.
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatalf("stream did not end: %v", err)
+	}
+	if code, _, _ := f.get(t, "/apps/hello/logs"); code != http.StatusSeeOther {
+		t.Fatalf("reconnect: %d, want the login redirect", code)
+	}
+}
+
+func TestUntilLoggedOutStopsItsWatcher(t *testing.T) {
+	f := newFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: "live"})
+	f.web.mu.Lock()
+	f.web.sessions["live"] = time.Now().Add(time.Hour)
+	f.web.mu.Unlock()
+	f.web.sessionCheck = time.Hour // the ticker never fires; stop alone must end it
+	ctx, stop := f.web.untilLoggedOut(req)
+	if ctx.Err() != nil {
+		t.Fatal("a live session's context ended early")
+	}
+	stop() // returns only once the watcher has
+	if ctx.Err() == nil {
+		t.Fatal("stop left the context running")
 	}
 }

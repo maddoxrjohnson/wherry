@@ -1,5 +1,6 @@
 // Package router is the daemon's public HTTP front door. It picks a backend
-// by the request's Host header and proxies to it with httputil.ReverseProxy.
+// by the request's Host header and proxies to it with httputil.ReverseProxy,
+// or, for a route made with SetHandler, calls a handler in this process.
 //
 // The routing table is an immutable map behind an atomic pointer. Every
 // request loads the pointer once; the rare writer (a deploy) builds a new map
@@ -27,6 +28,7 @@ import (
 
 	"golang.org/x/crypto/acme/autocert"
 
+	"github.com/maddoxrjohnson/wherry/internal/ratelimit"
 	"github.com/maddoxrjohnson/wherry/internal/serve"
 )
 
@@ -36,14 +38,19 @@ const (
 	DefaultMaxBody = 32 << 20
 
 	dialTimeout = 5 * time.Second
+
+	// inProcess is what Get reports for a SetHandler route.
+	inProcess = "in-process"
 )
 
 // backend is one routing table entry. The URL is built once, at Set, so the
-// hot path does no parsing.
+// hot path does no parsing. A non-nil handler serves the request itself and
+// the proxy, the only reader of url, is never involved.
 type backend struct {
-	app  string
-	addr string
-	url  *url.URL
+	app     string
+	addr    string
+	url     *url.URL
+	handler http.Handler
 }
 
 // Observer is told about every request the router handles; the metrics
@@ -60,7 +67,7 @@ type Options struct {
 	Log      *slog.Logger
 	Observer Observer   // sees every request; nil means nobody
 	MaxBody  int64      // the largest request body accepted, in bytes; 0 means DefaultMaxBody
-	RateRPS  int        // requests per second per client IP; 0 means no limit
+	RateRPS  int        // requests per second per client IP, or /64 for IPv6; 0 means no limit
 	TLS      *TLSConfig // nil means plain HTTP only
 }
 
@@ -73,7 +80,7 @@ type Router struct {
 	mu    sync.Mutex // serializes writers; readers never take it
 	proxy *httputil.ReverseProxy
 	log   *slog.Logger
-	limit *limiter // nil: no rate limit
+	limit *ratelimit.Limiter // nil: no rate limit
 
 	acme    *autocert.Manager // nil: TLS off
 	tlsConf *tls.Config
@@ -124,27 +131,38 @@ func New(o Options) *Router {
 	return r
 }
 
-// SetRateLimit caps each client IP at rps requests per second with a burst
-// of twice that; 0 turns the limit off. Set it before the first request.
+// SetRateLimit caps each client IP, or /64 for IPv6, at rps requests per
+// second with a burst of twice that; 0 turns the limit off. Set it before the first request.
 func (r *Router) SetRateLimit(rps int) {
 	if rps <= 0 {
 		r.limit = nil
 		return
 	}
-	r.limit = newLimiter(rps, 2*rps)
+	r.limit = ratelimit.New(float64(rps), 2*rps)
 }
 
 // Set routes host to addr, a host:port the router can dial, on behalf of
 // app, which is how the request is labelled in the metrics and the log.
 func (r *Router) Set(host, app, addr string) {
+	r.put(host, backend{app: app, addr: addr, url: &url.URL{Scheme: "http", Host: addr}})
+}
+
+// SetHandler routes host to h inside this process, labelled like an app.
+// The handler gets the original request, so it sees the real TLS state and
+// client address, and nothing but h is reachable on that host. The rate
+// limit, access log, observer, and HTTPS redirect apply as on any route.
+func (r *Router) SetHandler(host, label string, h http.Handler) {
+	r.put(host, backend{app: label, addr: inProcess, handler: h})
+}
+
+func (r *Router) put(host string, b backend) {
 	host = hostOf(host)
-	b := backend{app: app, addr: addr, url: &url.URL{Scheme: "http", Host: addr}}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	next := maps.Clone(*r.table.Load())
 	next[host] = b
 	r.table.Store(&next)
-	r.log.Info("route set", "host", host, "app", app, "addr", addr)
+	r.log.Info("route set", "host", host, "app", b.app, "addr", b.addr)
 }
 
 // Remove drops the route for host. Removing an unknown host does nothing.
@@ -161,14 +179,16 @@ func (r *Router) Remove(host string) {
 	r.log.Info("route removed", "host", host)
 }
 
-// Get returns the address host routes to.
+// Get returns the address host routes to, which for a SetHandler route is
+// only a marker and not something to dial.
 func (r *Router) Get(host string) (addr string, ok bool) {
 	b, ok := (*r.table.Load())[hostOf(host)]
 	return b.addr, ok
 }
 
 // ServeHTTP is the hot path: one pointer load, one map lookup, then the
-// proxy. Every response carries X-Request-Id and every request is logged.
+// proxy or the route's handler. Every response carries X-Request-Id and
+// every request is logged.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	start := time.Now()
 	id := requestID()
@@ -184,7 +204,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	case ok:
 		req.Header.Set("X-Request-Id", id) // the proxy clones headers into the outbound request
 		req.Body = http.MaxBytesReader(w, req.Body, r.maxBody)
-		r.proxy.ServeHTTP(rw, req.WithContext(context.WithValue(req.Context(), ctxKey{}, b)))
+		if b.handler != nil {
+			b.handler.ServeHTTP(rw, req)
+		} else {
+			r.proxy.ServeHTTP(rw, req.WithContext(context.WithValue(req.Context(), ctxKey{}, b)))
+		}
 	default:
 		http.Error(rw, fmt.Sprintf("no app at %s (request %s)", host, id), http.StatusNotFound)
 	}
@@ -233,21 +257,12 @@ func (r *Router) serve(ctx context.Context, ln net.Listener, h http.Handler, nam
 // limited refuses the request with a 429 when its client is over the rate
 // limit, and reports whether it did.
 func (r *Router) limited(w http.ResponseWriter, req *http.Request) bool {
-	if r.limit == nil || r.limit.allow(clientIP(req.RemoteAddr), time.Now()) {
+	if r.limit == nil || r.limit.Allow(ratelimit.ClientIP(req.RemoteAddr), time.Now()) {
 		return false
 	}
 	w.Header().Set("Retry-After", "1")
 	http.Error(w, fmt.Sprintf("too many requests (request %s)", w.Header().Get("X-Request-Id")), http.StatusTooManyRequests)
 	return true
-}
-
-// clientIP is the peer's address without the port, the rate limiter's
-// key. The router is the edge, so X-Forwarded-For is never trusted here.
-func clientIP(remoteAddr string) string {
-	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
-		return host
-	}
-	return remoteAddr
 }
 
 // hostOf normalizes a Host header for the table: no port, no trailing dot,

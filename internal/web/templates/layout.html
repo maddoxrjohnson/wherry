@@ -14,7 +14,7 @@
 <main>
 {{template "content" .}}
 </main>
-<footer>wherryd {{.Version}}</footer>
+<footer>{{if ne .Page "login"}}wherryd {{.Version}}{{end}}</footer>
 <script src="/static/app.js"></script>
 </body>
 </html>{{end}}

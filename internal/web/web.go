@@ -1,6 +1,7 @@
-// Package web is the dashboard: a few server-rendered pages on the internal
-// listener that show what the API knows and stream live logs into the
-// browser. Login is the admin token; a cookie carries the session after
+// Package web is the dashboard: a few server-rendered pages that show what
+// the API knows and stream live logs into the browser. They are on the
+// internal listener and, with a dashboard host configured, public through
+// the router. Login is the admin token; a cookie carries the session after
 // that. There is no framework and no build step: html/template, embed, and
 // a few dozen lines of JavaScript for the log view and the reveal buttons.
 package web
@@ -18,6 +19,7 @@ import (
 
 	"github.com/maddoxrjohnson/wherry/internal/gitcmd"
 	"github.com/maddoxrjohnson/wherry/internal/logs"
+	"github.com/maddoxrjohnson/wherry/internal/ratelimit"
 	"github.com/maddoxrjohnson/wherry/internal/runtime"
 	"github.com/maddoxrjohnson/wherry/internal/site"
 	"github.com/maddoxrjohnson/wherry/internal/store"
@@ -54,6 +56,25 @@ const (
 	cookieName = "wherry_session"
 	sessionTTL = 24 * time.Hour
 	logTail    = 100
+
+	// A login guesses at the admin token, so it is limited far below the
+	// router's request rate: a burst for typos, then one try per refill.
+	loginBurst  = 5
+	loginRefill = 30 * time.Second
+
+	maxLoginBody = 4 << 10 // a token and a little form encoding
+
+	// Everything the pages load is same-origin and none of it is inline.
+	contentSecurityPolicy = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+	// strictTransportSecurity leaves out includeSubDomains: the apps under
+	// this name are their own business.
+	strictTransportSecurity = "max-age=31536000"
+
+	// sessionCheck is how often a log stream looks at its session. The
+	// session is only checked when a request starts, and a stream is one
+	// request that can outlive it by days.
+	sessionCheck = 30 * time.Second
 )
 
 //go:embed templates/*.html static/*
@@ -68,7 +89,11 @@ type Server struct {
 	cfg   Config
 	log   *slog.Logger
 	mux   *http.ServeMux
+	root  http.Handler // mux behind the cross-origin check
 	pages map[string]*template.Template
+
+	logins       *ratelimit.Limiter // attempts per client
+	sessionCheck time.Duration
 
 	mu       sync.Mutex
 	sessions map[string]time.Time // id -> expiry
@@ -80,7 +105,13 @@ func New(st Store, sup Supervisor, lg Logs, token string, cfg Config, log *slog.
 		log = slog.Default()
 	}
 	s := &Server{store: st, sup: sup, logs: lg, token: []byte(token), cfg: cfg, log: log,
-		mux: http.NewServeMux(), pages: make(map[string]*template.Template), sessions: make(map[string]time.Time)}
+		mux: http.NewServeMux(), pages: make(map[string]*template.Template), sessions: make(map[string]time.Time),
+		logins: ratelimit.New(1/loginRefill.Seconds(), loginBurst), sessionCheck: sessionCheck}
+	// In front of the mux, so a cross-origin form is refused before it can
+	// spend a login attempt or log the operator out. It compares Origin
+	// with the Host the browser sent, which a tunnel to the internal
+	// listener leaves alone, and lets curl through, which sends neither.
+	s.root = http.NewCrossOriginProtection().Handler(s.mux)
 	for _, page := range []string{"login", "apps", "app"} {
 		s.pages[page] = template.Must(template.New("").Funcs(template.FuncMap{
 			"local":  func(t time.Time) string { return t.Local().Format(time.DateTime) },
@@ -102,9 +133,18 @@ func New(st Store, sup Supervisor, lg Logs, token string, cfg Config, log *slog.
 }
 
 // ServeHTTP routes to the pages; the session check is per route, since
-// the login page and the static files have none.
+// the login page and the static files have none. The headers go on every
+// response, errors included, now that the pages can be public.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	h := w.Header()
+	h.Set("X-Frame-Options", "DENY")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "same-origin")
+	h.Set("Content-Security-Policy", contentSecurityPolicy)
+	if r.TLS != nil {
+		h.Set("Strict-Transport-Security", strictTransportSecurity)
+	}
+	s.root.ServeHTTP(w, r)
 }
 
 // render executes a page inside the layout.
@@ -115,6 +155,7 @@ func (s *Server) render(w http.ResponseWriter, status int, page string, data map
 	data["Version"] = s.cfg.Version
 	data["Page"] = page
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	if err := s.pages[page].ExecuteTemplate(w, "layout", data); err != nil {
 		s.log.Error("render", "page", page, "err", err)

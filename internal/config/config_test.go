@@ -37,6 +37,7 @@ func TestOverrides(t *testing.T) {
 		"WHERRY_HTTP_ADDR":         ":80",
 		"WHERRY_HTTPS_ADDR":        ":443",
 		"WHERRY_ACME_EMAIL":        "ops@example.test",
+		"WHERRY_DASHBOARD_HOST":    "example.test",
 		"WHERRY_SSH_ADDR":          ":22",
 		"WHERRY_SSH_HOST_KEY":      "/etc/wherry/key",
 		"WHERRY_INTERNAL_ADDR":     "127.0.0.1:9001",
@@ -58,6 +59,7 @@ func TestOverrides(t *testing.T) {
 		HTTPAddr:         ":80",
 		HTTPSAddr:        ":443",
 		ACMEEmail:        "ops@example.test",
+		DashboardHost:    "example.test",
 		SSHAddr:          ":22",
 		SSHHostKey:       "/etc/wherry/key",
 		InternalAddr:     "127.0.0.1:9001",
@@ -82,7 +84,32 @@ func TestOverrides(t *testing.T) {
 	}
 }
 
+func TestDashboardHostValid(t *testing.T) {
+	env := map[string]string{
+		"WHERRY_DOMAIN":     "apps.example.test",
+		"WHERRY_HTTPS_ADDR": ":443",
+		"WHERRY_ACME_EMAIL": "ops@example.test",
+	}
+	for _, host := range []string{"example.test", "dash.example.test", "my-dash.example.test", "apps.example.test"} {
+		env["WHERRY_DASHBOARD_HOST"] = host
+		got, err := load(func(k string) string { return env[k] })
+		if err != nil {
+			t.Errorf("%s: %v", host, err)
+		} else if got.DashboardHost != host {
+			t.Errorf("DashboardHost = %q, want %q", got.DashboardHost, host)
+		}
+	}
+}
+
 func TestInvalid(t *testing.T) {
+	dash := func(host string) map[string]string {
+		return map[string]string{
+			"WHERRY_DOMAIN":         "Apps.Example.Test",
+			"WHERRY_HTTPS_ADDR":     ":443",
+			"WHERRY_ACME_EMAIL":     "ops@example.test",
+			"WHERRY_DASHBOARD_HOST": host,
+		}
+	}
 	cases := []struct {
 		name    string
 		env     map[string]string
@@ -109,6 +136,20 @@ func TestInvalid(t *testing.T) {
 		{"build timeout zero", map[string]string{"WHERRY_BUILD_TIMEOUT": "0"}, "WHERRY_BUILD_TIMEOUT"},
 		{"health negative", map[string]string{"WHERRY_HEALTH_TIMEOUT": "-30s"}, "WHERRY_HEALTH_TIMEOUT"},
 		{"drain zero", map[string]string{"WHERRY_DRAIN_GRACE": "0s"}, "WHERRY_DRAIN_GRACE"},
+		{"dashboard scheme", dash("https://example.test"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard port", dash("example.test:443"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard path", dash("example.test/admin"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard upper case", dash("Example.test"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard no dot", dash("dashboard"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard trailing dot", dash("dash.apps.example.test."), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard empty label", dash("example..test"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard ip", dash("192.0.2.1"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard numeric last label", dash("example.123"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard leading hyphen", dash("-a.example.com"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard hyphen last label", dash("foo.-"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard under domain", dash("dash.apps.example.test"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard deep under domain", dash("a.b.apps.example.test"), "WHERRY_DASHBOARD_HOST"},
+		{"dashboard without https", map[string]string{"WHERRY_DOMAIN": "apps.example.test", "WHERRY_DASHBOARD_HOST": "example.test"}, "WHERRY_DASHBOARD_HOST"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

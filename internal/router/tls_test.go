@@ -19,52 +19,6 @@ import (
 	"time"
 )
 
-func TestLimiter(t *testing.T) {
-	l := newLimiter(2, 4) // 2/s, burst 4
-	now := time.Unix(1000, 0)
-	for i := range 4 {
-		if !l.allow("a", now) {
-			t.Fatalf("request %d of the burst refused", i+1)
-		}
-	}
-	if l.allow("a", now) {
-		t.Fatal("fifth request in the same instant allowed")
-	}
-	if !l.allow("b", now) {
-		t.Fatal("another client should have its own bucket")
-	}
-	if !l.allow("a", now.Add(500*time.Millisecond)) {
-		t.Fatal("half a second refills one token at 2/s")
-	}
-	if l.allow("a", now.Add(500*time.Millisecond)) {
-		t.Fatal("and only one")
-	}
-	later := now.Add(time.Hour)
-	for i := range 4 {
-		if !l.allow("a", later) {
-			t.Fatalf("an idle bucket refills to the burst: request %d refused", i+1)
-		}
-	}
-	if l.allow("a", later) {
-		t.Fatal("burst exceeded: an idle bucket refills to the burst, not beyond")
-	}
-}
-
-func TestLimiterSweepsIdleBuckets(t *testing.T) {
-	l := newLimiter(1, 1)
-	now := time.Unix(1000, 0)
-	for i := range maxBuckets {
-		l.allow("ip"+string(rune(i)), now)
-	}
-	if len(l.buckets) != maxBuckets {
-		t.Fatalf("%d buckets", len(l.buckets))
-	}
-	l.allow("late", now.Add(time.Second)) // full map: the idle ones go
-	if len(l.buckets) != 1 {
-		t.Fatalf("%d buckets after the sweep, want 1", len(l.buckets))
-	}
-}
-
 func TestRateLimitAnswers429(t *testing.T) {
 	r, srv, _ := newRouter(t)
 	r.SetRateLimit(2) // burst 4
@@ -89,6 +43,93 @@ func TestRateLimitAnswers429(t *testing.T) {
 	r.SetRateLimit(0)
 	if resp := get(t, srv, "hello.localhost", nil); resp.StatusCode != http.StatusOK {
 		t.Fatalf("limit off: %d", resp.StatusCode)
+	}
+}
+
+func TestRateLimitCoversHandlerRoute(t *testing.T) {
+	r, srv, _ := newRouterWith(t, Options{RateRPS: 1}) // burst 2
+	r.SetHandler("dash.example.com", "_dashboard", dashboard())
+	codes := make([]int, 0, 3)
+	for range 3 {
+		resp := get(t, srv, "dash.example.com", nil)
+		_ = resp.Body.Close()
+		codes = append(codes, resp.StatusCode)
+	}
+	if codes[0] != http.StatusTeapot || codes[2] != http.StatusTooManyRequests {
+		t.Fatalf("codes %v", codes)
+	}
+}
+
+// The session cookie's Secure flag reads r.TLS and the login limit reads
+// r.RemoteAddr, so both have to arrive as the client's connection set them.
+func TestSetHandlerSeesTheConnection(t *testing.T) {
+	r := New(Options{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	type seen struct {
+		tls    bool
+		remote string
+	}
+	got := make(chan seen, 1)
+	r.SetHandler("dash.example.com", "_dashboard", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		got <- seen{req.TLS != nil, req.RemoteAddr}
+	}))
+	srv := httptest.NewTLSServer(r)
+	t.Cleanup(srv.Close)
+
+	local := make(chan string, 1)
+	client := srv.Client()
+	tr := client.Transport.(*http.Transport)
+	tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		c, err := new(net.Dialer).DialContext(ctx, network, addr)
+		if err == nil {
+			local <- c.LocalAddr().String()
+		}
+		return c, err
+	}
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	req.Host = "dash.example.com"
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	s := <-got
+	if !s.tls {
+		t.Error("handler saw no TLS state")
+	}
+	if want := <-local; s.remote != want {
+		t.Errorf("RemoteAddr = %q, want the client's %q", s.remote, want)
+	}
+}
+
+func TestHandlerRouteRedirectsToHTTPS(t *testing.T) {
+	r := New(Options{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	r.EnableTLS(TLSConfig{Email: "ops@example.com", CacheDir: t.TempDir()})
+	r.SetHandler("dash.example.com", "_dashboard", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("the handler ran on the plain listener")
+	}))
+	srv := httptest.NewServer(r.httpHandler())
+	t.Cleanup(srv.Close)
+	client := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/login", strings.NewReader("token=secret"))
+	req.Host = "dash.example.com"
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusPermanentRedirect || resp.Header.Get("Location") != "https://dash.example.com/login" {
+		t.Fatalf("redirect: %d %q", resp.StatusCode, resp.Header.Get("Location"))
+	}
+}
+
+func TestHostPolicyAllowsHandlerRoute(t *testing.T) {
+	r := New(Options{Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	r.SetHandler("dash.example.com", "_dashboard", dashboard())
+	if err := r.hostPolicy(context.Background(), "dash.example.com"); err != nil {
+		t.Errorf("handler route refused: %v", err)
+	}
+	if err := r.hostPolicy(context.Background(), "other.example.com"); err == nil {
+		t.Error("unrouted host allowed")
 	}
 }
 

@@ -169,10 +169,10 @@ client that connects by IP and names a host of its choosing cannot spend the iss
 limit. With TLS on, every other plain-HTTP request is redirected to `https://` with a 308.
 Locally neither variable is set and everything stays plain HTTP.
 
-Every client IP is limited to `WHERRY_RATE_LIMIT_RPS` requests a second (default 100,
-burst twice that, `0` disables) by a token bucket, before the route lookup, so a flood of
-requests for unknown hosts is refused as cheaply as one for a real app; refused requests
-get a 429 with `Retry-After`. Request bodies are capped at 32 MB, the listeners have
+Every client IP, or /64 for IPv6, is limited to `WHERRY_RATE_LIMIT_RPS` requests a second
+(default 100, burst twice that, `0` disables) by a token bucket, before the route lookup, so
+a flood of requests for unknown hosts is refused as cheaply as one for a real app; refused
+requests get a 429 with `Retry-After`. Request bodies are capped at 32 MB, the listeners have
 header and idle timeouts, and the client's own `X-Forwarded-*` headers are dropped before
 the router sets its own. Streaming responses are flushed as they arrive and WebSocket
 upgrades pass through, so an app can serve server-sent events or a socket behind the
@@ -207,6 +207,17 @@ with the admin token, see the apps, and open one for its instance, releases, con
 (masked until revealed), build logs, and a live log view. It is server-rendered
 `html/template` with a few dozen lines of JavaScript for the log stream and the reveal
 buttons, and it is read-only: changes go through the CLI.
+
+Set `WHERRY_DASHBOARD_HOST` to a bare hostname and the router serves the dashboard there too,
+so I can use `wherry.dev` with apps at `<app>.apps.wherry.dev`. It needs `WHERRY_HTTPS_ADDR`,
+because the admin token must not cross plain HTTP, and it cannot sit under `WHERRY_DOMAIN`,
+because a name there belongs to an app; the domain itself is fine. Point the host's DNS at the
+server and the certificate comes the same way as an app's. The router calls the dashboard's
+handler directly rather than proxying to the internal listener, so `/api/`, `/metrics`, and
+`/healthz` are not reachable on that host, and the handler sees the real client address and TLS
+state. Login attempts are limited per client IP (an IPv6 client by its /64) to a burst of 5 and
+one more every 30 seconds, then a 429 with `Retry-After`, and the session cookie has no `Domain`,
+so it never reaches the apps.
 
 ## The native runtime
 
@@ -324,8 +335,8 @@ not start.
 `release_version` has to be a published release. First boot only happens once, so Terraform
 ignores later changes to anything it feeds, along with the image and SSH key, rather than
 replacing the server and losing its data disk. To retry a failed first boot, use
-`terraform apply -replace=hcloud_server.wherry`. To change the domain or email on a running box,
-edit `/etc/wherry/env` and restart the unit.
+`terraform apply -replace=hcloud_server.wherry`. To change the domain, email, or dashboard host
+on a running box, edit `/etc/wherry/env` and restart the unit.
 
 The default is a CAX11, which is arm64; the release architecture follows the server type.
 
@@ -334,8 +345,8 @@ The default is a CAX11, which is arm64; the release architecture follows the ser
 Every setting is an environment variable prefixed `WHERRY_`. The full list with defaults is
 in `internal/config/config.go`. A bad value stops the daemon at startup with the variable
 named in the error. The ones that pick what runs where: `WHERRY_RUNTIME` (`docker` or
-`native`), `WHERRY_CGROUP_ROOT`, `WHERRY_HTTPS_ADDR` with `WHERRY_ACME_EMAIL`, and
-`WHERRY_RATE_LIMIT_RPS`.
+`native`), `WHERRY_CGROUP_ROOT`, `WHERRY_HTTPS_ADDR` with `WHERRY_ACME_EMAIL`,
+`WHERRY_DASHBOARD_HOST`, and `WHERRY_RATE_LIMIT_RPS`.
 
 ## License
 

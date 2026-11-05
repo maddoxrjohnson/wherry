@@ -40,7 +40,7 @@ type Metrics struct {
 func New(version, rt string) *Metrics {
 	m := &Metrics{reg: prometheus.NewRegistry()}
 	f := registrar{reg: m.reg}
-	m.httpRequests = f.counter("wherry_http_requests_total", "Requests the router proxied, by app and response status.", "app", "status")
+	m.httpRequests = f.counter("wherry_http_requests_total", "Requests the router handled, by app and response status.", "app", "status")
 	m.httpDuration = f.histogram("wherry_http_request_duration_seconds", "Time from a request's arrival at the router to its last byte.", prometheus.DefBuckets, "app")
 	m.upstreamErrors = f.counter("wherry_http_upstream_errors_total", "Requests the app's instance could not answer (502s).", "app")
 	m.deploys = f.counter("wherry_deploys_total", "Deploys by app and result.", "app", "result")

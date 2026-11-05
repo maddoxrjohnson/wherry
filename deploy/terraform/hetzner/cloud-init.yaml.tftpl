@@ -13,6 +13,9 @@ write_files:
       WHERRY_HTTP_ADDR=:80
       WHERRY_HTTPS_ADDR=:443
       WHERRY_ACME_EMAIL=${acme_email}
+%{ if dashboard_host != "" ~}
+      WHERRY_DASHBOARD_HOST=${dashboard_host}
+%{ endif ~}
   - path: /root/install-wherry.sh
     permissions: "0700"
     content: |

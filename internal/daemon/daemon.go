@@ -40,6 +40,10 @@ import (
 // port itself.
 const dockerContainerPort = 8080
 
+// dashboardLabel names the public dashboard in the metrics and the access
+// log. The underscore keeps it from ever being an app's name.
+const dashboardLabel = "_dashboard"
+
 // Run starts everything and blocks until ctx ends or a listener fails,
 // then shuts down in order: listeners stop accepting, the supervisor's
 // actors return, the store closes. version labels the ready line and the
@@ -110,12 +114,7 @@ func Run(ctx context.Context, cfg config.Config, version string, log *slog.Logge
 	}
 	as := api.New(st, sup, hub, token, api.Config{DataDir: cfg.DataDir, Site: where}, log)
 	dash := web.New(st, sup, hub, token, web.Config{DataDir: cfg.DataDir, Site: where, Version: version}, log)
-	// One internal listener: the API under /api/, the dashboard elsewhere.
-	internal := http.NewServeMux()
-	internal.Handle("/api/", as)
-	internal.Handle("GET /metrics", mets.Handler())
-	internal.HandleFunc("GET /healthz", mets.Healthz)
-	internal.Handle("/", dash)
+	internal := mountHTTP(rt, cfg.DashboardHost, as, mets, dash, log)
 
 	hs, err := hook.NewServer(cfg.DataDir, sup, log)
 	if err != nil {
@@ -178,6 +177,23 @@ func Run(ctx context.Context, cfg config.Config, version string, log *slog.Logge
 	mets.SetReady(true)
 	log.Info("ready", "version", version, "runtime", cfg.Runtime)
 	return g.Wait()
+}
+
+// mountHTTP builds the one internal listener's mux, the API under /api/ and
+// the dashboard elsewhere, and returns it. With a dashboard host set, dash
+// alone goes public on the router, never this mux: /api/, /metrics, and
+// /healthz stay internal. Both happen here so a test can hold them to that.
+func mountHTTP(rt *router.Router, dashboardHost string, api http.Handler, mets *metrics.Metrics, dash http.Handler, log *slog.Logger) http.Handler {
+	internal := http.NewServeMux()
+	internal.Handle("/api/", api)
+	internal.Handle("GET /metrics", mets.Handler())
+	internal.HandleFunc("GET /healthz", mets.Healthz)
+	internal.Handle("/", dash)
+	if dashboardHost != "" {
+		rt.SetHandler(dashboardHost, dashboardLabel, dash)
+		log.Info("public dashboard", "host", dashboardHost)
+	}
+	return internal
 }
 
 // listeners collects what was opened so a failure to open the next one

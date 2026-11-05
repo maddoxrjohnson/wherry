@@ -11,7 +11,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -26,6 +28,13 @@ const (
 	LogFormatText = "text"
 )
 
+// hostnameRE is a bare lower-case hostname with at least two labels: no
+// scheme, port, or path, no empty label, trailing dot included, and no label
+// that starts or ends with a hyphen. The last label starts with a letter,
+// which also rules out an IP address: no certificate can be had for one
+// this way.
+var hostnameRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]([a-z0-9-]*[a-z0-9])?$`)
+
 // Config holds every WHERRY_* setting. Loaded once at startup, read-only after.
 type Config struct {
 	DataDir          string
@@ -33,6 +42,7 @@ type Config struct {
 	HTTPAddr         string
 	HTTPSAddr        string // empty disables TLS
 	ACMEEmail        string
+	DashboardHost    string // public hostname of the dashboard; empty keeps it internal
 	SSHAddr          string
 	SSHHostKey       string
 	InternalAddr     string
@@ -104,6 +114,9 @@ func load(getenv func(string) string) (Config, error) {
 	}
 	if v := getenv("WHERRY_ACME_EMAIL"); v != "" {
 		c.ACMEEmail = v
+	}
+	if v := getenv("WHERRY_DASHBOARD_HOST"); v != "" {
+		c.DashboardHost = v
 	}
 	if v := getenv("WHERRY_SSH_ADDR"); v != "" {
 		c.SSHAddr = v
@@ -193,6 +206,9 @@ func (c Config) validate() error {
 			return errors.New("WHERRY_ACME_EMAIL: required when WHERRY_HTTPS_ADDR is set")
 		}
 	}
+	if err := c.checkDashboardHost(); err != nil {
+		return err
+	}
 	switch c.Runtime {
 	case RuntimeDocker, RuntimeNative:
 	default:
@@ -223,6 +239,27 @@ func (c Config) validate() error {
 	case LogFormatJSON, LogFormatText:
 	default:
 		return fmt.Errorf("WHERRY_LOG_FORMAT: %q is not %s or %s", c.LogFormat, LogFormatJSON, LogFormatText)
+	}
+	return nil
+}
+
+// checkDashboardHost holds the rules for the public dashboard. The admin
+// token is typed into that page, so it must never cross plain HTTP. A name
+// under the domain belongs to the app of that name; the domain itself is
+// free, since an app host is always <name>.<Domain>.
+func (c Config) checkDashboardHost() error {
+	if c.DashboardHost == "" {
+		return nil
+	}
+	if !hostnameRE.MatchString(c.DashboardHost) {
+		return fmt.Errorf("WHERRY_DASHBOARD_HOST: %q is not a bare lower-case hostname", c.DashboardHost)
+	}
+	if c.HTTPSAddr == "" {
+		return errors.New("WHERRY_DASHBOARD_HOST: requires WHERRY_HTTPS_ADDR")
+	}
+	domain := strings.TrimSuffix(strings.ToLower(c.Domain), ".")
+	if strings.HasSuffix(c.DashboardHost, "."+domain) {
+		return fmt.Errorf("WHERRY_DASHBOARD_HOST: %q is under WHERRY_DOMAIN, so it belongs to an app", c.DashboardHost)
 	}
 	return nil
 }

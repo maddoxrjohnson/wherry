@@ -41,6 +41,7 @@ resource "hcloud_server" "wherry" {
   user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
     domain          = var.domain
     acme_email      = var.acme_email
+    dashboard_host  = var.dashboard_host
     release_repo    = var.release_repo
     release_version = var.release_version
     arch            = local.arch

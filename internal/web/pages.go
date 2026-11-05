@@ -98,7 +98,8 @@ func (s *Server) app(w http.ResponseWriter, r *http.Request) {
 
 // appLogs streams the app's lines as server-sent events, the same frames
 // the API sends, on a path the session cookie authorizes: EventSource
-// cannot send a bearer token.
+// cannot send a bearer token. The stream ends with the session, and the
+// browser's reconnect then lands on the login redirect.
 func (s *Server) appLogs(w http.ResponseWriter, r *http.Request) {
 	a, err := s.store.GetApp(r.Context(), r.PathValue("app"))
 	if err != nil {
@@ -112,7 +113,9 @@ func (s *Server) appLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	ch, cancel := s.logs.Subscribe(a.Name, logTail)
 	defer cancel()
-	sse.Follow(r.Context(), st, ch)
+	ctx, stop := s.untilLoggedOut(r)
+	defer stop()
+	sse.Follow(ctx, st, ch)
 }
 
 // buildLog serves one build's log as text. The commit is checked to be
@@ -133,6 +136,7 @@ func (s *Server) buildLog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(data)
 }
 

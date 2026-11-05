@@ -8,6 +8,22 @@ variable "acme_email" {
   type        = string
 }
 
+variable "dashboard_host" {
+  description = "Public hostname for the dashboard, such as example.com. Empty keeps it on the internal listener."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.dashboard_host == "" || can(regex("^([a-z0-9]([a-z0-9-]*[a-z0-9])?\\.)+[a-z]([a-z0-9-]*[a-z0-9])?$", var.dashboard_host))
+    error_message = "Must be empty or a bare lower-case hostname, not an IP address."
+  }
+
+  validation {
+    condition     = !endswith(var.dashboard_host, ".${trimsuffix(lower(var.domain), ".")}")
+    error_message = "A name under the domain belongs to an app. The domain itself is fine."
+  }
+}
+
 variable "release_version" {
   description = "Release tag to install on first boot, such as v0.1.0-rc1. It must already be published."
   type        = string

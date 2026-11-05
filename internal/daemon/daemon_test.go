@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,9 @@ import (
 	"time"
 
 	"github.com/maddoxrjohnson/wherry/internal/config"
+	"github.com/maddoxrjohnson/wherry/internal/metrics"
+	"github.com/maddoxrjohnson/wherry/internal/router"
+	"github.com/maddoxrjohnson/wherry/internal/web"
 )
 
 // logBuffer collects log lines from the daemon's goroutines.
@@ -139,5 +143,48 @@ func TestListenersCloseOnFailure(t *testing.T) {
 	lns.closeAll()
 	if _, err := net.DialTimeout("tcp", a.Addr().String(), time.Second); err == nil {
 		t.Fatal("first listener still open after closeAll")
+	}
+}
+
+// The public host must get the dashboard and nothing the internal mux adds.
+// The dashboard here is the real handler; none of these paths reach its store.
+func TestPublicHostGetsOnlyTheDashboard(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rt := router.New(router.Options{Log: log})
+	mets := metrics.New("test", "docker")
+	mets.SetReady(true)
+	api := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	dash := web.New(nil, nil, nil, "token", web.Config{}, log)
+	const host = "dash.example.com"
+	internal := mountHTTP(rt, host, api, mets, dash, log)
+
+	status := func(h http.Handler, path string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.Host = host
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, req)
+		return w.Code
+	}
+	for _, path := range []string{"/api/apps", "/metrics", "/healthz"} {
+		if got := status(rt, path); got != http.StatusNotFound {
+			t.Errorf("public %s: %d, want 404", path, got)
+		}
+		if got := status(internal, path); got != http.StatusOK {
+			t.Errorf("internal %s: %d, want 200", path, got)
+		}
+	}
+	for name, h := range map[string]http.Handler{"public": rt, "internal": internal} {
+		if got := status(h, "/login"); got != http.StatusOK {
+			t.Errorf("%s /login: %d", name, got)
+		}
+	}
+}
+
+func TestNoPublicRouteWithoutAHost(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rt := router.New(router.Options{Log: log})
+	mountHTTP(rt, "", http.NotFoundHandler(), metrics.New("test", "docker"), http.NotFoundHandler(), log)
+	if _, ok := rt.Get(""); ok {
+		t.Error("an empty dashboard host made a route")
 	}
 }
