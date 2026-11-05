@@ -1,0 +1,78 @@
+#!/bin/sh
+# Backs up a wherry data directory to a dated tarball and keeps the newest few.
+# Safe while the daemon runs: the database goes through wherryd backup, and the
+# live files are left out of the tar.
+set -eu
+
+export WHERRY_DATA_DIR="${WHERRY_DATA_DIR:-/var/lib/wherry}"
+dir=${WHERRY_BACKUP_DIR:-/var/backups/wherry}
+keep=${WHERRY_BACKUP_KEEP:-7}
+
+case $keep in
+  '' | 0* | *[!0-9]*)
+    echo "wherry-backup: WHERRY_BACKUP_KEEP must be a positive number" >&2
+    exit 1
+    ;;
+esac
+
+# The tarball holds the admin token, private keys, and every config value.
+umask 077
+install -d -m 0700 "$dir"
+
+# Two runs at once would clear each other's work below.
+exec 9>"$dir/.lock"
+if ! flock -n 9; then
+  echo "wherry-backup: another backup is running" >&2
+  exit 1
+fi
+
+# What a killed run or a power cut left behind. It holds a copy of the database.
+for stale in "$dir"/.tmp.??????; do
+  if [ -d "$stale" ]; then
+    rm -rf "${stale:?}"
+  fi
+done
+
+# Inside the backup directory, so the rename below stays on one filesystem.
+work=$(mktemp -d "$dir/.tmp.XXXXXX")
+trap 'rm -rf "${work:?}"' EXIT
+trap 'exit 1' HUP INT TERM
+
+# The snapshot comes first, so every commit it names is in its repository by
+# the time tar gets there. The tar itself is not point-in-time, though: a push
+# landing while it runs can leave a ref without all of its objects, which is
+# why a restore starts with git fsck.
+wherryd backup "$work/wherry.db"
+
+# What stays out: the live database (the snapshot stands in as wherry.db), the
+# hook socket, the hook script the daemon writes on every start, build logs,
+# and the native runtime's image exports and per-instance state.
+#
+# GNU tar exits 1 when a file changes or vanishes under it, which is routine
+# here with app logs being written and rotated. Anything worse is 2.
+status=0
+tar --create --gzip --numeric-owner --file "$work/backup.tar.gz" \
+  --warning=no-file-changed --warning=no-file-removed \
+  --anchored \
+  --exclude=./wherry.db --exclude=./wherry.db-wal --exclude=./wherry.db-shm \
+  --exclude=./wherry.sock --exclude=./hooks \
+  --exclude=./builds --exclude=./rootfs --exclude=./instances \
+  -C "$WHERRY_DATA_DIR" . \
+  -C "$work" wherry.db || status=$?
+if [ "$status" -gt 1 ]; then
+  echo "wherry-backup: tar failed with status $status" >&2
+  exit 1
+fi
+tar --list --gzip --file "$work/backup.tar.gz" wherry.db >/dev/null
+
+# On disk before it gets the final name, so that name always means a whole file.
+sync "$work/backup.tar.gz"
+name=wherry-$(date -u +%Y%m%dT%H%M%SZ).tar.gz
+mv "$work/backup.tar.gz" "$dir/$name"
+echo "wherry-backup: $dir/$name"
+
+# The timestamp sorts by name, and only a good run reaches this point.
+ls -1 "$dir" | grep -E '^wherry-[0-9]{8}T[0-9]{6}Z\.tar\.gz$' | sort -r |
+  tail -n "+$((keep + 1))" | while IFS= read -r old; do
+    rm -f "${dir:?}/${old:?}"
+  done

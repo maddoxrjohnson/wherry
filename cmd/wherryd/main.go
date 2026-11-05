@@ -32,10 +32,18 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "runtime-init" {
 		os.Exit(native.Init(os.Args[2:]))
 	}
-	if err := run(); err != nil {
+	if err := dispatch(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, "wherryd:", err)
 		os.Exit(1)
 	}
+}
+
+// dispatch picks between the backup command and the daemon.
+func dispatch(args []string) error {
+	if len(args) > 0 && args[0] == "backup" {
+		return backup(args[1:])
+	}
+	return run()
 }
 
 func run() error {

@@ -1,0 +1,37 @@
+[Unit]
+Description=wherry backup
+Documentation=https://github.com/maddoxrjohnson/wherry
+
+[Service]
+Type=oneshot
+Environment=WHERRY_DATA_DIR=/var/lib/wherry
+EnvironmentFile=/etc/wherry/env
+ExecStart=/usr/local/bin/wherry-backup
+
+# Everything it touches is root's own, so it needs no capabilities at all. SQLite
+# writes next to the database even to read it, which is why the data directory
+# stays writable. /var/backups rather than its wherry directory, which the
+# script creates and which would otherwise have to exist first.
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+StateDirectory=wherry
+StateDirectoryMode=0700
+ReadWritePaths=/var/backups
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
