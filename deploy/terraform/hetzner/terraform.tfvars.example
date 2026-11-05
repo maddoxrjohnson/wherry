@@ -2,7 +2,7 @@ domain          = "apps.example.com"
 acme_email      = "you@example.com"
 dashboard_host  = "example.com"
 # Must ship wherry-update and wherry-backup, so v0.1.0-rc1 is too old.
-release_version = "v0.2.0"
+release_version = "v0.1.0-rc2"
 # Use ["0.0.0.0/0", "::/0"] with the deploy workflow: GitHub's runners have no
 # fixed address. New servers have password login off; on an older box turn it
 # off by hand first, as the README explains.

@@ -328,6 +328,46 @@ on a running box, edit `/etc/wherry/env` and restart the unit.
 
 The default is a CAX11, which is arm64; the release architecture follows the server type.
 
+### AWS instead
+
+`deploy/terraform/aws` builds the same box on EC2 from the same first-boot template: a `t4g.small`
+with an encrypted 20 GB disk, a key pair, a security group in the default VPC, and an Elastic IP.
+`t3.small` works too; the AMI and the release architecture follow the instance type. I use it to
+show the module works on AWS, not as the long-running host.
+
+    export AWS_PROFILE=...
+    cd deploy/terraform/aws
+    cp terraform.tfvars.example terraform.tfvars
+    terraform init
+    terraform apply
+    ssh ubuntu@<ip> cloud-init status --wait
+
+`terraform output ssh_command` prints that login. Credentials come from the standard AWS chain, so
+`AWS_PROFILE` works, and the provider reads an `aws login` session on its own. If it does not
+pick one up, export it first:
+
+    eval "$(aws configure export-credentials --format env)"
+
+It costs money for as long as it exists, and the Elastic IP is billed too, so tear it down when I
+am done. That deletes the disk and everything on it:
+
+    terraform destroy
+
+Keep it away from the live names. DNS for those points at the other box, so no certificate can be
+issued here: give it a domain of its own and leave `dashboard_host` empty.
+
+The login is `ubuntu` with sudo. Root login with the Terraform key is refused, so wherever the
+runbook below says `ssh root@<ip>`, use `ssh ubuntu@<ip>` and run the command after `sudo -i`, which
+also covers the restore steps, because a glob in `/var/lib/wherry` only expands as root. To copy a
+backup off the box, use `ssh ubuntu@<ip> sudo cat <file> > <file>`; `scp` can't read that directory.
+A tunnel only needs the `ubuntu@` login.
+
+To retry a failed first boot, use `terraform apply -replace=aws_instance.wherry`. The Elastic IP
+stays but the host keys are new, so run `ssh-keygen -R <ip>` first, and a deploy key line has to go
+back in along with `DEPLOY_KNOWN_HOSTS`. The deploy workflow still connects as root, so its forced-command key goes in
+`/root/.ssh/authorized_keys` as a line of its own, added with sudo. Don't put it in `ubuntu`'s file:
+`sudo` would throw away the `SSH_ORIGINAL_COMMAND` that `wherry-update` reads.
+
 ### Running it under systemd
 
 `deploy/systemd/wherryd.service` is the unit I deploy with. It expects the binary at

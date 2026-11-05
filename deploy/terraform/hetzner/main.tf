@@ -38,7 +38,7 @@ resource "hcloud_server" "wherry" {
   ssh_keys     = [hcloud_ssh_key.admin.id]
   firewall_ids = [hcloud_firewall.wherry.id]
 
-  user_data = templatefile("${path.module}/cloud-init.yaml.tftpl", {
+  user_data = templatefile("${path.module}/../cloud-init.yaml.tftpl", {
     domain          = var.domain
     acme_email      = var.acme_email
     dashboard_host  = var.dashboard_host
