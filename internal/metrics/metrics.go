@@ -19,6 +19,11 @@ import (
 	"github.com/maddoxrjohnson/wherry/internal/supervisor"
 )
 
+// A proxied request usually takes about a millisecond, which is below the
+// default histogram's first bucket of 5ms, so those buckets cannot tell a
+// normal request from a slow one.
+var requestBuckets = []float64{.0005, .001, .0025, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10}
+
 // Metrics holds every series the daemon exports. Create it with New.
 type Metrics struct {
 	reg   *prometheus.Registry
@@ -41,7 +46,7 @@ func New(version, rt string) *Metrics {
 	m := &Metrics{reg: prometheus.NewRegistry()}
 	f := registrar{reg: m.reg}
 	m.httpRequests = f.counter("wherry_http_requests_total", "Requests the router handled, by app and response status.", "app", "status")
-	m.httpDuration = f.histogram("wherry_http_request_duration_seconds", "Time from a request's arrival at the router to its last byte.", prometheus.DefBuckets, "app")
+	m.httpDuration = f.histogram("wherry_http_request_duration_seconds", "Time from a request's arrival at the router to its last byte.", requestBuckets, "app")
 	m.upstreamErrors = f.counter("wherry_http_upstream_errors_total", "Requests the app's instance could not answer (502s).", "app")
 	m.deploys = f.counter("wherry_deploys_total", "Deploys by app and result.", "app", "result")
 	m.deployDuration = f.histogram("wherry_deploy_duration_seconds", "Time spent in each deploy stage.",
