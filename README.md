@@ -2,88 +2,31 @@
 
 [![ci](https://github.com/maddoxrjohnson/wherry/actions/workflows/ci.yml/badge.svg)](https://github.com/maddoxrjohnson/wherry/actions/workflows/ci.yml)
 
-A small self-hosted platform I am building so that `git push` is the whole deploy: the
-server receives the push, builds an image, starts the container, routes traffic to it by
-hostname, and swaps releases without dropping requests. One Go binary, SQLite for state,
-Docker underneath, and later my own container runtime as a second backend.
+A small self-hosted platform where `git push` is the whole deploy. The server receives the push,
+builds an image, starts the container, routes traffic to it by hostname, and swaps releases without
+dropping requests. It is one Go daemon and a CLI, with SQLite for state. Docker builds the images,
+and either Docker or a container runtime I wrote myself from namespaces, cgroups, and overlayfs runs
+them.
 
-Work in progress. Today a push deploys. The daemon accepts `git push` over SSH with public
-keys from its own key table, keeps one bare repository per app, and runs nothing except
-`git receive-pack` and `git upload-pack`. A pre-receive hook hands each push to the daemon
-over a unix socket, proving it belongs to that push with a one-time nonce. The daemon builds
-the commit into an image through the Docker Engine API, records a numbered release, starts
-the image as a container published on 127.0.0.1 only (memory, CPU, and process limits,
-`no-new-privileges`), waits until the app holds a TCP connection on its port, points the
-reverse proxy at it, stops the previous container, and marks the release live. Every line of
-that streams back to the pusher's terminal; a build that fails or an app that never listens
-rejects the push and the previous release keeps serving. The proxy routes by hostname from
-a copy-on-write table, so requests never take a lock, and every response carries an
-`X-Request-Id` that also appears in the access log. Config vars are per-app environment
-variables: each release snapshots them when it is created, and changing one makes a new
-release of the same image and redeploys it. A deploy drops no requests: the new instance
-gets traffic only after its health check passes, the route moves in one atomic swap, and
-the old instance keeps running for a drain period before it is stopped. An instance that
-exits on its own is restarted with exponential backoff (1, 2, 4, up to 60 seconds) and
-given up on after ten failures in ten minutes, which `ps` reports. The `wherry` command
-talks to the daemon's API: apps, config, releases, rollback, restart, `ps`, keys. A daemon
-restart changes nothing for the apps: containers keep serving while it is down, and on start
-it reconciles what is running with what should be before it opens a single port. Every
-line an instance prints is collected once, stamped, appended to a per-app log file, and
-kept in memory for the readers that `logs -f` and the dashboard add next.
+![A terminal session: git push builds the app and it goes live, then a second push serves the new version](demo/wherry.svg)
 
-## Zero-downtime deploys, measured
+That is a real session against a daemon on my machine, with pauses over 1.5 seconds cut. The script
+is `demo/demo.sh` and the recording is `demo/wherry.cast`.
 
-`examples/slowstart` sleeps ten seconds before it listens and shuts down cleanly on SIGTERM.
-With `scripts/loadloop` sending 200 requests a second through the router and
-`scripts/deploys.sh` pushing ten deploys back to back:
+I built it to understand a deploy pipeline from the inside, rather than only use one. It runs at
+[wherry.dev](https://wherry.dev) on a single small ARM server, and
+[hello.apps.wherry.dev](https://hello.apps.wherry.dev) is an app deployed to it by `git push`.
 
-    requests=24747 ok=24747 failed=0 (none) distinct bodies=11 p50=730µs p99=1.85ms max=15.7ms
+What it does:
 
-Zero failed requests in 24,747 across ten deploys (measured 2026-10-12 on the Docker
-runtime in WSL2). Eleven distinct bodies means every release answered during the run, so
-the swaps happened; the daemon log shows eleven route swaps and ten old instances stopped
-after the five-second drain. To reproduce:
+- A failed build or a health check that never passes rejects the push, and the old release keeps serving.
+- A deploy drops no requests that finish within the drain period: zero failures in 24,747 across ten deploys.
+- A crashed app restarts with exponential backoff, and a crash loop shows up in `wherry ps`.
+- Stopping the daemon leaves the apps running, and starting it adopts them again.
+- Logs stream to the CLI and the dashboard, and a stalled reader cannot slow the app down.
+- Certificates come from Let's Encrypt on the first request, and Prometheus metrics are built in.
 
-    ./bin/wherry apps:create slowstart
-    # push examples/slowstart once, then, with the daemon started with
-    # WHERRY_RATE_LIMIT_RPS=0 (the load loop is one client sending 200 req/s):
-    go run ./scripts/loadloop -host slowstart.localhost -rate 200 &
-    sh scripts/deploys.sh /path/to/slowstart-checkout 10
-    kill -INT %1; wait
-
-`WHERRY_DRAIN_GRACE` (default `5s`) is how long a replaced instance keeps running after the
-route moved away from it. The app's own `[process] grace` is the SIGTERM-to-SIGKILL window
-once the stop begins.
-
-## Crashes
-
-A watcher per instance waits for its process to exit. An exit the daemon did not ask for
-schedules a restart of the same release after 1 s, then 2, 4, 8, 16, 32, and 60 s for later
-failures within a ten-minute window; the tenth failure in the window marks the app
-`crashed` and nothing more is tried until a restart is asked for. The route stays where it
-was, so requests to a crashed app get a 502 with a request id rather than a 404.
-`examples/crasher` exits two seconds after it starts when `CRASH_AFTER=2s` is set, and
-`wherry ps crasher` shows the state, the restart count, and when the next attempt is due.
-`wherry restart crasher` ends a crash loop once its cause is fixed.
-
-An optional `wherry.toml` at the root of the repository tunes the deploy. Every value is
-optional; this is the full set with the defaults:
-
-    [health]
-    path = "/healthz"     # GET must return 2xx; without it, the check is a held TCP connection
-    timeout = "30s"       # how long a new instance has to pass the check
-    interval = "250ms"    # how often to probe
-
-    [process]
-    grace = "10s"         # SIGTERM to SIGKILL when an instance is stopped
-    memory = "256m"       # memory limit (k, m, g, or bytes)
-    cpu = "1.0"           # CPU quota
-
-The effective values are stored with each release, so a rollback or a config change runs
-with the settings of the release it reuses. A file that does not parse, or names a key the
-daemon does not know, rejects the push with the error as the last line.
-
-## Deploying an app locally
+## Trying it locally
 
 With Docker running and the daemon started (`make run`, text logs on stderr), log the CLI
 in with the token the daemon wrote on its first start, then create an app and push:
@@ -138,6 +81,148 @@ The build context is `git archive` of the pushed commit, so only tracked files r
 build and `.dockerignore` has no effect. To keep tracked files out of the image, mark them
 `export-ignore` in `.gitattributes`.
 
+## How it works
+
+One deploy, from push to live:
+
+    git push ──ssh──▶ gitserver ──exec──▶ git receive-pack (bare repo)
+                                              │
+                                              ▼ pre-receive hook = `wherryd hook`
+                                        unix socket ──▶ daemon: Deploy(app, sha, out)
+                                                              │
+                          new release vN ─────────────────────┤  every line goes back through
+                          build the commit into an image ─────┤  out → hook → git sideband →
+                          start an instance ──────────────────┤  the pusher's terminal
+                          wait for its health check ──────────┤
+                          swap the route (atomic) ────────────┤
+                          mark vN live ───────────────────────┘
+                                              │
+                                              ▼ hook exits 0: the ref moves, the push succeeds
+                                                hook exits 1: the push is rejected, the old release serves
+
+                          afterwards, in the background: drain the old instance, then stop it
+
+The SSH server is part of the daemon and runs nothing except `git receive-pack` and
+`git upload-pack`, for keys in its own table. The `pre-receive` hook is the daemon's own binary in a
+small client mode. It hands the push over a unix socket, proving it belongs to that push with a
+one-time nonce, and the deploy happens in the daemon, where the state is. Because all of this sits
+in front of the ref update, the branch on the server moves only if the release went live. I wrote up
+why that decision shaped everything else in [Why a failed deploy rejects the
+push](docs/why-a-push-can-fail.md).
+
+The deploy itself is this. A config change is the same steps with the live image, and a rollback
+uses an old release's image and config. A restart skips the release row and just replaces the
+instance.
+
+    1. Create release vN with a snapshot of the app's config.
+    2. Build the image and record it on the release.
+    3. Start an instance on a free loopback port, with PORT in its environment, and collect its logs.
+    4. Wait until it is healthy, or stop it, mark vN failed, and reject the push.
+    5. Swap the route to the new instance in one atomic store.
+    6. Start the crash watcher.
+    7. Mark vN live and answer the push.
+    8. In the background, stop the old instance after the drain period.
+
+The concurrency, in one place:
+
+- **One goroutine per app** owns that app's deploy state and receives everything as a message. Two
+  pushes to one app serialize without a lock, and two apps deploy at the same time. A build
+  semaphore limits how many images build at once.
+- **The routing table is copy-on-write.** Every request loads one atomic pointer, and a deploy builds
+  a new map and stores it. A route lookup never takes a lock.
+- **One watcher per instance** blocks waiting for the process to exit and reports back to the app's
+  goroutine over a channel. Watchers never touch state.
+- **Log fan-out never blocks.** Each reader has a bounded channel and sends to it cannot wait, so a
+  slow reader loses lines and is told how many. It cannot slow the collector.
+- **Shutdown is a context.** Cancelling the root context stops each component, and containers keep
+  running across it, which is what makes reconcile on the next start possible.
+- **Restart backoff runs on a clock interface,** so the tests fire its timers by hand and the
+  sequence 1, 2, 4, up to 60 seconds is asserted exactly. Health checks and the drain use real time,
+  with short timeouts in tests.
+
+Docker and the native runtime sit behind one small interface, so the supervisor hardly knows which
+one it is using.
+
+## Zero-downtime deploys, measured
+
+`examples/slowstart` sleeps ten seconds before it listens and shuts down cleanly on SIGTERM.
+With `scripts/loadloop` sending 200 requests a second through the router and
+`scripts/deploys.sh` pushing ten deploys back to back:
+
+    requests=24747 ok=24747 failed=0 (none) distinct bodies=11 p50=730µs p99=1.85ms max=15.7ms
+
+Zero failed requests in 24,747 across ten deploys (measured 2026-10-12 on the Docker
+runtime in WSL2). Eleven distinct bodies means every release answered during the run, so
+the swaps happened; the daemon log shows eleven route swaps and ten old instances stopped
+after the five-second drain. To reproduce:
+
+    ./bin/wherry apps:create slowstart
+    # push examples/slowstart once, then, with the daemon started with
+    # WHERRY_RATE_LIMIT_RPS=0 (the load loop is one client sending 200 req/s):
+    go run ./scripts/loadloop -host slowstart.localhost -rate 200 &
+    sh scripts/deploys.sh /path/to/slowstart-checkout 10
+    kill -INT %1; wait
+
+Latency through a deploy, from the router's own `wherry_http_request_duration_seconds` histogram,
+scraped once a second during three more deploys at 200 req/s (2026-11-06, Docker runtime in WSL2):
+
+![Request latency per second through three deploys. p50 stays under about 2 ms and p99 near 2.5 ms, with brief spikes to about 5 ms.](demo/deploy-latency.svg)
+
+The run had 18,399 requests, none failed, with p50 1.4 ms, p99 3.3 ms, and a maximum of 20 ms as the
+load loop measured them. The chart's values are interpolated from histogram buckets, so p99 tends to
+sit on the 2.5 ms bucket edge. Some spikes come about five seconds after a swap, which is when the
+drain ends and the old instance stops, and others come nowhere near one. I have not confirmed the
+cause. Builds run on the same machine as the load.
+
+`WHERRY_DRAIN_GRACE` (default `5s`) is how long a replaced instance keeps running after the
+route moved away from it. The app's own `[process] grace` is the SIGTERM-to-SIGKILL window
+once the stop begins.
+
+## Crashes
+
+A watcher per instance waits for its process to exit. An exit the daemon did not ask for
+schedules a restart of the same release after 1 s, then 2, 4, 8, 16, 32, and 60 s for later
+failures within a ten-minute window; the tenth failure in the window marks the app
+`crashed` and nothing more is tried until a restart is asked for. The route stays where it
+was, so requests to a crashed app get a 502 with a request id rather than a 404.
+`examples/crasher` exits two seconds after it starts when `CRASH_AFTER=2s` is set, and
+`wherry ps crasher` shows the state, the restart count, and when the next attempt is due.
+`wherry restart crasher` ends a crash loop once its cause is fixed.
+
+## wherry.toml
+
+An optional `wherry.toml` at the root of the repository tunes the deploy. Every value is
+optional; this is the full set with the defaults:
+
+    [health]
+    path = "/healthz"     # GET must return 2xx; without it, the check is a held TCP connection
+    timeout = "30s"       # how long a new instance has to pass the check
+    interval = "250ms"    # how often to probe
+
+    [process]
+    grace = "10s"         # SIGTERM to SIGKILL when an instance is stopped
+    memory = "256m"       # memory limit (k, m, g, or bytes)
+    cpu = "1.0"           # CPU quota
+
+The effective values are stored with each release, so a rollback or a config change runs
+with the settings of the release it reuses. A file that does not parse, or names a key the
+daemon does not know, rejects the push with the error as the last line.
+
+## Daemon restarts
+
+The containers belong to Docker, not to the daemon, so they keep serving while `wherryd` is
+stopped. On start the daemon lists the containers it labelled and compares them with each
+app's live release: a running instance of the live release is adopted (route restored,
+crash watcher started), anything else running is an orphan and is stopped, exited containers
+are removed, a live release with nothing running is started again, and a release left
+`building` or `starting` by a cut-off deploy is marked `failed`. One log line reports the
+counts:
+
+    msg=reconciled adopted=1 restarted=0 orphans=0 removed=0 failed=0
+
+This runs before any listener opens, so there is no window of 404s. Restart counts live in
+memory and start over with the daemon; `ps` shows that.
+
 ## Logs
 
 A collector goroutine per instance reads the container's output from the moment it
@@ -168,6 +253,8 @@ is cached under `data/certs`. Only hostnames the router routes can get a certifi
 client that connects by IP and names a host of its choosing cannot spend the issuer's rate
 limit. With TLS on, every other plain-HTTP request is redirected to `https://` with a 308.
 Locally neither variable is set and everything stays plain HTTP.
+
+Every response carries an `X-Request-Id` that also appears in the access log.
 
 Every client IP, or /64 for IPv6, is limited to `WHERRY_RATE_LIMIT_RPS` requests a second
 (default 100, burst twice that, `0` disables) by a token bucket, before the route lookup, so
@@ -241,7 +328,7 @@ user namespace in which the daemon's user is root, which is enough for the mount
 the pivot. In that mode there are no cgroup limits, no uid switch (there is no other
 uid to switch to), `/sys` is a read-only bind of the host's, and the device nodes are
 bind-mounted from the host. Everything else is the same code, and the tests run in both
-modes (`sudo go test ./internal/runtime/native/` for the privileged half).
+modes (see Development and testing for the privileged half).
 
 What it does and does not isolate, next to Docker's defaults:
 
@@ -267,32 +354,12 @@ native runtime (rootless, in WSL2) on 2026-10-19:
 
     requests=23767 ok=23767 failed=0 (none) distinct bodies=11 p50=1.08ms p99=2.12ms max=17.9ms
 
-## Daemon restarts
+And as root, with cgroup limits on, on 2026-11-06:
 
-The containers belong to Docker, not to the daemon, so they keep serving while `wherryd` is
-stopped. On start the daemon lists the containers it labelled and compares them with each
-app's live release: a running instance of the live release is adopted (route restored,
-crash watcher started), anything else running is an orphan and is stopped, exited containers
-are removed, a live release with nothing running is started again, and a release left
-`building` or `starting` by a cut-off deploy is marked `failed`. One log line reports the
-counts:
+    22,577 requests, 0 failed, 11 distinct bodies
 
-    msg=reconciled adopted=1 restarted=0 orphans=0 removed=0 failed=0
-
-This runs before any listener opens, so there is no window of 404s. Restart counts live in
-memory and start over with the daemon; `ps` shows that.
-
-## Build and run
-
-Go 1.27 or newer and make.
-
-    make build      # bin/wherryd (daemon) and bin/wherry (CLI)
-    make test       # go test -race
-    make e2e        # deploy, restart, and recovery on real Docker; refuses to run beside other wherry containers
-    make lint       # go vet and golangci-lint
-    make run        # start the daemon locally with text logs
-
-`./bin/wherryd --version` prints the version stamped at build time.
+`examples/memhog`, pushed with `[process] memory = "128m"`, was killed by the kernel at that limit
+with exit code 137 and restarted with backoff, on real cgroups.
 
 ## Self-hosting
 
@@ -596,6 +663,25 @@ image is gone still makes a new release, then Docker says `No such image`, that 
 `failed`, and whatever was live keeps serving. Nothing rebuilds it. The way back to that code is
 to push it as a new commit.
 
+## CLI reference
+
+    login <url> <token>              save the daemon's address and admin token
+    apps                             list apps
+    apps:create <name>               create an app and print its git remote
+    apps:destroy <name>              stop and remove an app, its releases, and its repository
+    config:get <app>                 show config vars
+    config:set <app> KEY=value ...   set config vars and redeploy
+    config:unset <app> KEY ...       unset config vars and redeploy
+    releases <app>                   list releases, newest first
+    releases:info <app> <vN>         show one release
+    releases:rollback <app> <vN>     new release from vN's image and config
+    ps <app>                         the app's instance, its state, and restarts
+    logs <app> [-f] [-n N]           recent lines (default 100); -f keeps following
+    restart <app>                    replace the live release's instance
+    keys:add <name> <pubkey-file>    allow a public key to push
+
+List and show commands take `--json`.
+
 ## Configuration
 
 Every setting is an environment variable prefixed `WHERRY_`. The full list with defaults is
@@ -603,6 +689,44 @@ in `internal/config/config.go`. A bad value stops the daemon at startup with the
 named in the error. The ones that pick what runs where: `WHERRY_RUNTIME` (`docker` or
 `native`), `WHERRY_CGROUP_ROOT`, `WHERRY_HTTPS_ADDR` with `WHERRY_ACME_EMAIL`,
 `WHERRY_DASHBOARD_HOST`, and `WHERRY_RATE_LIMIT_RPS`.
+
+## Development and testing
+
+Go 1.27 or newer and make.
+
+    make build      # bin/wherryd (daemon) and bin/wherry (CLI)
+    make test       # go test -race
+    make e2e        # deploy, restart, and recovery on real Docker; refuses to run beside other wherry containers
+    make lint       # go vet and golangci-lint
+    make run        # start the daemon locally with text logs
+
+`./bin/wherryd --version` prints the version stamped at build time.
+
+The tests run under the race detector. The git server's tests push
+with the real `git` binary, the supervisor's use a fake runtime and a fake clock, and the Docker
+tests skip if there is no daemon. The native runtime's privileged tests need root and the Go tool,
+and plain `sudo` drops the Go tool from `PATH`, so those tests would skip while the run looks green:
+
+    cd internal/runtime/native && go test -c -o /tmp/native.test .
+    sudo env PATH="$PATH" GOCACHE=/tmp/wherry-root /tmp/native.test -test.v
+
+CI runs gofmt, vet, golangci-lint, the race tests, the build, and `make e2e` on every push to main and
+every pull request. Tags build
+amd64 and arm64 release archives, and a manual workflow updates the server over a key that can only
+run the update script.
+
+## What I would do next
+
+- **Network namespaces for the native runtime.** It shares the host network today, which is the
+  largest gap in its isolation, and a veth pair and a bridge would close it. Seccomp and user
+  namespaces in the root case come next.
+- **TCP passthrough.** The router speaks HTTP only, so an app that is its own SSH server cannot be
+  hosted.
+- **More than one instance per app,** with the router choosing between them.
+- **Encrypted config at rest.** Config vars sit in SQLite in plain text today, protected by file
+  permissions.
+- **Several nodes.** That would mean a small daemon on each machine and a scheduler above them, which is a
+  different and much larger system than this one.
 
 ## License
 
