@@ -629,10 +629,10 @@ again once the daemon is up:
 What happens next depends on Docker. On the same box the containers are still there, and the
 daemon adopts the ones the backup knows about and stops any others. On a new box there are no
 images, because they were never in the backup, and the daemon does not rebuild anything by itself.
-It tries to start each live release once, logs `restart at reconcile` with `No such image`, and
-moves on. That app has no route, so the router answers 404. `wherry ps` keeps saying `starting`,
-and `wherry restart` fails the same way. Its repository and config are safe, so one push brings it
-back. It has to be a new commit, because git has nothing to send otherwise:
+It tries to start each live release, fails with `No such image`, and retries on the crash backoff
+until `wherry ps` says `crashed`, about four minutes later. That app has no route, so the router
+answers 404, and `wherry restart` fails the same way. Its repository and config are safe, so one
+push brings it back. It has to be a new commit, because git has nothing to send otherwise:
 
     git commit --allow-empty -m "rebuild after restore"
     git push wherry main

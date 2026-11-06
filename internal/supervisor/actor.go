@@ -78,6 +78,7 @@ const (
 	kindRollback             // an earlier release's image and config, as a new row
 	kindDestroy              // stop everything and retire the actor
 	kindAdopt                // take over an instance found running at start
+	kindRecover              // bring back a live release found not running at start
 )
 
 type deployCmd struct {
@@ -111,6 +112,11 @@ func (a *actor) run(ctx context.Context) {
 			}
 			if cmd.kind == kindAdopt {
 				cmd.reply <- a.adopt(cmd)
+				continue
+			}
+			if cmd.kind == kindRecover {
+				a.restart(cmd.ctx)
+				cmd.reply <- nil
 				continue
 			}
 			a.busy.Store(true)
@@ -247,8 +253,9 @@ func (a *actor) failed(why string) {
 	a.retry = s.clock.After(wait)
 }
 
-// restart is the scheduled restart: the live release again. A restart that
-// does not come up is one more failure.
+// restart is a restart nobody asked for, from the timer or from reconcile:
+// the live release again. One that does not come up is one more failure, so
+// it is tried again on the backoff schedule.
 func (a *actor) restart(ctx context.Context) {
 	a.busy.Store(true)
 	defer a.busy.Store(false)

@@ -1286,9 +1286,9 @@ func TestFailedManualRestartDuringBackoff(t *testing.T) {
 	f.waitState(t, StateRunning, st.Instance)
 }
 
-// The restart reconcile sends is neither a new release nor one that counts as
-// a failure, so nothing but the deploy itself can correct the status.
-func TestFailedRestartAtReconcile(t *testing.T) {
+// A release that does not come back at reconcile is retried like any other
+// failed restart, so an outage at daemon start ends without an operator.
+func TestFailedRestartAtReconcileIsRetried(t *testing.T) {
 	f := newFixture(t, Config{HealthTimeout: 300 * time.Millisecond})
 	ctx := context.Background()
 	app, _ := f.store.GetApp(ctx, "hello")
@@ -1299,12 +1299,38 @@ func TestFailedRestartAtReconcile(t *testing.T) {
 	if err := f.store.SetLive(ctx, app.ID, rel.ID); err != nil {
 		t.Fatal(err)
 	}
+	f.runtime.mu.Lock()
 	f.runtime.listen = false
+	f.runtime.mu.Unlock()
 	if _, err := f.sup.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if st := f.waitState(t, StateStopped, "none"); st.Detail != "v1 failed" {
-		t.Errorf("status = %+v, want stopped with v1 failed", st)
+	if d := f.clock.fire(t); d != time.Second {
+		t.Errorf("first wait %s, want 1s", d)
+	}
+	// The second attempt has to be over before instances listen again.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		st, _ := f.sup.Status("hello")
+		if st.State == StateRestarting && strings.Contains(st.Detail, "restart 2 in 2s") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status = %+v, want a second failed restart", st)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	f.runtime.mu.Lock()
+	f.runtime.listen = true
+	f.runtime.mu.Unlock()
+	if d := f.clock.fire(t); d != 2*time.Second {
+		t.Errorf("second wait %s, want 2s", d)
+	}
+	if st := f.waitState(t, StateRunning, ""); st.Release != "v1" || st.Restarts != 1 {
+		t.Errorf("status = %+v, want v1 running after one restart", st)
+	}
+	if addr, ok := f.router.Get("hello.localhost"); !ok || addr == "" {
+		t.Error("no route after the retry")
 	}
 }
 

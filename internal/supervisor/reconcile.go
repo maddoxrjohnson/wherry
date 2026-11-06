@@ -31,8 +31,9 @@ func (r Report) String() string {
 // instance of an app's live release is adopted; anything else running is
 // an orphan and is stopped; exited instances are removed; a live release
 // with nothing running is started again, in the background, through the
-// normal deploy path; releases cut off mid-deploy are marked failed. It
-// returns what it did, and the first error that stopped it from looking.
+// normal deploy path and with the normal retries; releases cut off
+// mid-deploy are marked failed. It returns what it did, and the first error
+// that stopped it from looking.
 func (s *Supervisor) Reconcile(ctx context.Context) (Report, error) {
 	var rep Report
 	insts, err := s.runtime.List(ctx)
@@ -80,11 +81,12 @@ func (s *Supervisor) Reconcile(ctx context.Context) (Report, error) {
 			continue
 		}
 		// Nothing runs for a release that should: start one, but not here.
-		// A health wait per app would hold the whole start.
+		// A health wait per app would hold the whole start. The actor retries
+		// a failure on its backoff, so a brief outage at start heals by itself.
 		s.log.Warn("live release has no instance; restarting", "app", app.Name, "release", live.Name())
 		rep.Restarted++
 		go func(name string) {
-			if err := s.send(s.ctx, name, deployCmd{kind: kindRestart}, io.Discard); err != nil {
+			if err := s.send(s.ctx, name, deployCmd{kind: kindRecover}, io.Discard); err != nil {
 				s.log.Error("restart at reconcile", "app", name, "err", err)
 			}
 		}(app.Name)
