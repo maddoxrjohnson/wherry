@@ -37,7 +37,8 @@ type Store interface {
 
 // Hooks supplies what a receive-pack's pre-receive hook needs to reach the
 // daemon: the socket path and a nonce good for one push of one app. revoke
-// is called once git has exited, so a nonce never outlives its push.
+// is called once git has exited, so neither a nonce nor a deploy outlives its
+// push.
 type Hooks interface {
 	Socket() string
 	Issue(app string) (nonce string, revoke func())
@@ -256,7 +257,11 @@ func (s *Server) run(ctx context.Context, ch ssh.Channel, command, fp string) (i
 	cmd.Stdout = ch
 	cmd.Stderr = ch.Stderr()
 	// SIGTERM first so git removes its quarantine directory; Go sends SIGKILL
-	// after WaitDelay if that did not do it.
+	// after WaitDelay if that did not do it. The signal does not reach the
+	// pre-receive hook, which can outlive git while its deploy is silent.
+	// WaitDelay is also what lets Wait, and so revoke, happen then: the hook
+	// inherits git's stderr when the client took no sideband, and Wait would
+	// otherwise sit on that pipe for as long as the hook lives.
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = stopGrace
 	stdin, err := cmd.StdinPipe()

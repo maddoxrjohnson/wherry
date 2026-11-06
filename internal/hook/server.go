@@ -54,7 +54,14 @@ type Server struct {
 	log      *slog.Logger
 
 	mu     sync.Mutex
-	nonces map[string]string // nonce -> app it was issued for
+	nonces map[string]issued
+}
+
+// issued is what a nonce stands for until it is redeemed.
+type issued struct {
+	app string
+	// gitGone ends when the receive-pack the nonce was issued to has exited.
+	gitGone context.Context
 }
 
 // socketPath is where the daemon listens for its hooks.
@@ -84,7 +91,7 @@ func NewServer(dataDir string, d Deployer, log *slog.Logger) (*Server, error) {
 		dataDir:  real,
 		sock:     socketPath(real),
 		log:      log,
-		nonces:   make(map[string]string),
+		nonces:   make(map[string]issued),
 	}, nil
 }
 
@@ -93,28 +100,34 @@ func (s *Server) Socket() string { return s.sock }
 
 // Issue implements gitserver.Hooks: a fresh nonce that redeems exactly once,
 // for app only. revoke discards it if the hook never called, so a push that
-// stalls or is refused before pre-receive leaves nothing behind.
+// stalls or is refused before pre-receive leaves nothing behind. If the hook
+// did call, revoke also cancels that push's deploy, if it is still running:
+// git waits for the hook, so a git that has exited while the deploy runs is a
+// git that died, and it will never record the commit. After a finished deploy
+// nothing listens any more and revoke does nothing.
 func (s *Server) Issue(app string) (nonce string, revoke func()) {
 	nonce = rand.Text()
+	gitGone, cancel := context.WithCancel(context.Background())
 	s.mu.Lock()
-	s.nonces[nonce] = app
+	s.nonces[nonce] = issued{app: app, gitGone: gitGone}
 	s.mu.Unlock()
 	return nonce, func() {
 		s.mu.Lock()
 		delete(s.nonces, nonce)
 		s.mu.Unlock()
+		cancel()
 	}
 }
 
-// redeem consumes nonce and reports whether it was issued for app. A nonce
-// presented for the wrong app is consumed as well; a client that gets one
-// wrong does not get a second try.
-func (s *Server) redeem(nonce, app string) bool {
+// redeem consumes nonce and reports whether it was issued for app, with the
+// context that ends when its git does. A nonce presented for the wrong app
+// is consumed as well; a client that gets one wrong does not get a second try.
+func (s *Server) redeem(nonce, app string) (gitGone context.Context, ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	issuedFor, ok := s.nonces[nonce]
+	is, ok := s.nonces[nonce]
 	delete(s.nonces, nonce)
-	return ok && issuedFor == app
+	return is.gitGone, ok && is.app == app
 }
 
 // Listen binds the socket. A file left by a daemon that crashed is removed
@@ -158,9 +171,10 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 	}()
 	defer func() { _ = c.Close() }()
 
+	var gitGone context.Context
 	req, err := readRequest(c)
 	if err == nil {
-		err = s.check(&req)
+		gitGone, err = s.check(&req)
 	}
 	if err != nil {
 		s.log.Warn("hook refused", "app", req.App, "err", err)
@@ -168,12 +182,18 @@ func (s *Server) handle(ctx context.Context, c net.Conn) {
 		return
 	}
 
-	// The hook sends nothing after its request, so any read completing
-	// means it is gone: git was killed, or the pusher hung up. Stop the
-	// deploy then; a release that went live for a push git will not record
-	// would leave "what runs" and "what is pushed" disagreeing.
+	// A release that went live for a push git will not record would leave
+	// "what runs" and "what is pushed" disagreeing, so the deploy stops as
+	// soon as either end of the chain is gone. The hook sends nothing after
+	// its request, so any read completing means it has died. That alone is
+	// not enough: killing git does not touch the hook, which sits in a read
+	// on this socket and only dies of SIGPIPE on its next write to git's dead
+	// pipe, and a silent deploy never makes it write. So git's own exit stops
+	// the deploy too. Once this connection closes, the orphan's read ends and
+	// it exits.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	defer context.AfterFunc(gitGone, cancel)()
 	go func() {
 		_, _ = io.Copy(io.Discard, c)
 		cancel()
@@ -227,25 +247,27 @@ func readRequest(c net.Conn) (Request, error) {
 // check validates a request in the order that matters: the nonce first,
 // because it binds the app name to a push the SSH server admitted, then the
 // values that become arguments to git. The quarantine path is cleaned and
-// must lie inside the app's own object directory.
-func (s *Server) check(req *Request) error {
-	if !s.redeem(req.Nonce, req.App) {
-		return errors.New("bad or expired nonce")
+// must lie inside the app's own object directory. It returns the context
+// redeem gave for the nonce.
+func (s *Server) check(req *Request) (context.Context, error) {
+	gitGone, ok := s.redeem(req.Nonce, req.App)
+	if !ok {
+		return nil, errors.New("bad or expired nonce")
 	}
 	if !gitcmd.IsObjectName(req.SHA) {
-		return fmt.Errorf("bad object name %q", req.SHA)
+		return nil, fmt.Errorf("bad object name %q", req.SHA)
 	}
 	if req.Quarantine == "" || !filepath.IsAbs(req.Quarantine) {
-		return fmt.Errorf("bad quarantine path %q", req.Quarantine)
+		return nil, fmt.Errorf("bad quarantine path %q", req.Quarantine)
 	}
 	// git spells it <repo>/./objects/tmp_objdir-incoming-XXXXXX.
 	clean := filepath.Clean(req.Quarantine)
 	objects := filepath.Join(gitserver.RepoPath(s.dataDir, req.App), "objects")
 	if !strings.HasPrefix(clean, objects+string(filepath.Separator)) {
-		return fmt.Errorf("quarantine path %q is outside %s", req.Quarantine, objects)
+		return nil, fmt.Errorf("quarantine path %q is outside %s", req.Quarantine, objects)
 	}
 	req.Quarantine = clean
-	return nil
+	return gitGone, nil
 }
 
 // lineWriter frames whatever a Deployer writes as bandOutput lines. A write

@@ -176,21 +176,21 @@ func TestIssueAndRedeem(t *testing.T) {
 	if n1 == n2 || len(n1) < 20 {
 		t.Fatalf("nonces %q and %q: want distinct and long", n1, n2)
 	}
-	if !s.redeem(n1, "hello") {
+	if _, ok := s.redeem(n1, "hello"); !ok {
 		t.Error("fresh nonce refused")
 	}
-	if s.redeem(n1, "hello") {
+	if _, ok := s.redeem(n1, "hello"); ok {
 		t.Error("nonce redeemed twice")
 	}
-	if s.redeem(n2, "other") {
+	if _, ok := s.redeem(n2, "other"); ok {
 		t.Error("nonce accepted for another app")
 	}
-	if s.redeem(n2, "hello") {
+	if _, ok := s.redeem(n2, "hello"); ok {
 		t.Error("nonce still valid after a wrong app used it")
 	}
 	revoke1() // revoking a used nonce is harmless
 	revoke3()
-	if s.redeem(n3, "hello") {
+	if _, ok := s.redeem(n3, "hello"); ok {
 		t.Error("revoked nonce accepted")
 	}
 	if len(s.nonces) != 0 {
@@ -305,7 +305,7 @@ func TestHookGoneCancelsDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "Deploy to start", func() bool { return len(d.callList()) == 1 })
-	_ = c.Close() // git killed the hook, or the pusher's laptop died
+	_ = c.Close() // the hook died, say of SIGPIPE writing to a git that has gone
 	select {
 	case err := <-d.done:
 		if !errors.Is(err, context.Canceled) {
@@ -313,6 +313,76 @@ func TestHookGoneCancelsDeploy(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("deploy kept running after the hook went away")
+	}
+}
+
+// startDeploy opens a hook connection for nonce and returns once Deploy has
+// been called n times in all.
+func startDeploy(t *testing.T, s *Server, d *fakeDeployer, nonce string, n int) net.Conn {
+	t.Helper()
+	c, err := net.Dial("unix", s.Socket())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	req := fmt.Sprintf(`{"app":"hello","sha":%q,"quarantine":%q,"nonce":%q}`+"\n", newSHA, quarantineFor(s, "hello"), nonce)
+	if _, err := io.WriteString(c, req); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Deploy to start", func() bool { return len(d.callList()) == n })
+	return c
+}
+
+func TestRevokeCancelsOnlyItsOwnDeploy(t *testing.T) {
+	d := &fakeDeployer{block: true, done: make(chan error, 2)}
+	s := startServer(t, d)
+	first, revokeFirst := s.Issue("hello")
+	second, revokeSecond := s.Issue("hello")
+	_, revokeIdle := s.Issue("hello")
+	defer revokeSecond()
+	startDeploy(t, s, d, first, 1)
+	other := startDeploy(t, s, d, second, 2)
+
+	revokeIdle() // a push that never reached its hook has nothing to cancel
+	select {
+	case err := <-d.done:
+		t.Fatalf("revoking an unused nonce ended a deploy: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	revokeFirst()
+	select {
+	case err := <-d.done:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("deploy ended with %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("deploy kept running after its git exited")
+	}
+	select {
+	case err := <-d.done:
+		t.Fatalf("revoke ended another push's deploy too: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	// The survivor's connection is open and quiet: no verdict was sent on it.
+	_ = other.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+	if n, err := other.Read(make([]byte, 1)); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("second hook read %d bytes, err %v; want silence", n, err)
+	}
+}
+
+func TestRevokeAfterDeployIsHarmless(t *testing.T) {
+	d := &fakeDeployer{}
+	s := startServer(t, d)
+	nonce, revoke := s.Issue("hello")
+	code, _, stderr := runHook(t, s, "hello", nonce, quarantineFor(s, "hello"))
+	if code != 0 {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	revoke()
+	revoke()
+	if len(s.nonces) != 0 {
+		t.Errorf("%d nonces left in the table, want 0", len(s.nonces))
 	}
 }
 

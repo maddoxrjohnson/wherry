@@ -449,7 +449,9 @@ func hostMounts(t *testing.T) string {
 // memhog check in miniature.
 func TestMemoryLimitKillsTheHog(t *testing.T) {
 	if os.Geteuid() != 0 {
-		t.Skip("needs root: sudo go test -run TestMemoryLimit ./internal/runtime/native/")
+		// Not plain sudo go test: sudo's secure_path drops Go, the probe cannot
+		// build, and the run skips while looking green.
+		t.Skip(`needs root: go test -c -o /tmp/native.test ./internal/runtime/native/ && sudo env PATH="$PATH" GOCACHE=/tmp/wherry-root /tmp/native.test -test.v -test.run TestMemoryLimit`)
 	}
 	if !cgroup2Mounted("/sys/fs/cgroup") {
 		t.Skip("/sys/fs/cgroup is not cgroup v2")

@@ -176,10 +176,11 @@ func (r *fakeRuntime) goneChan(id string) chan struct{} {
 // Wait returns at once for an instance configured to exit on start, or
 // blocks until exit or Stop ends it, or ctx ends.
 func (r *fakeRuntime) Wait(ctx context.Context, id string) (int, error) {
+	r.mu.Lock()
 	if !r.listen && r.exitCode >= 0 {
+		defer r.mu.Unlock()
 		return r.exitCode, nil
 	}
-	r.mu.Lock()
 	ch := r.goneChan(id)
 	r.mu.Unlock()
 	select {
@@ -674,6 +675,73 @@ func TestCancelledPushIsRejected(t *testing.T) {
 	app, _ := f.store.GetApp(context.Background(), "hello")
 	if rels, _ := f.store.ListReleases(context.Background(), app.ID); len(rels) != 2 || rels[0].Status != store.StatusFailed || rels[1].Status != store.StatusLive {
 		t.Errorf("releases = %+v, want the cancelled one failed and the second live", rels)
+	}
+}
+
+// TestPushGoneDuringHealthWait is a pusher vanishing while v2 comes up with v1
+// serving. It may hit a probe that is failing, or one that is about to pass
+// (the connect-and-hold takes healthHold), which is the check after start.
+// Either way v2 goes and everything else stays as it was.
+func TestPushGoneDuringHealthWait(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		listen bool
+		delay  time.Duration
+	}{
+		{"failing probe", false, 0},
+		{"passing probe", true, healthHold / 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, Config{HealthTimeout: time.Minute})
+			bg := context.Background()
+			if _, err := f.deploy(bg, "hello"); err != nil {
+				t.Fatal(err)
+			}
+			route, _ := f.router.Get("hello.localhost")
+			f.runtime.mu.Lock()
+			f.runtime.listen = tc.listen
+			f.runtime.mu.Unlock()
+
+			ctx, cancel := context.WithCancel(bg)
+			defer cancel()
+			var out syncBuf
+			errs := make(chan error, 1)
+			go func() { errs <- f.sup.Deploy(ctx, "hello", sha, "", &out) }()
+			deadline := time.Now().Add(5 * time.Second)
+			for !strings.Contains(out.String(), "waiting for v2 to listen") {
+				if time.Now().After(deadline) {
+					t.Fatalf("no health wait in:\n%s", out.String())
+				}
+				time.Sleep(time.Millisecond)
+			}
+			time.Sleep(tc.delay)
+			cancel()
+			select {
+			case err := <-errs:
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("err = %v, want context.Canceled", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Deploy did not return after cancel")
+			}
+
+			if got := f.runtime.stoppedIDs(); !slices.Equal(got, []string{"inst2"}) {
+				t.Errorf("stopped %v, want only the new instance", got)
+			}
+			if got, _ := f.router.Get("hello.localhost"); got != route {
+				t.Errorf("route = %s, want still %s", got, route)
+			}
+			app, _ := f.store.GetApp(bg, "hello")
+			if live, err := f.store.LiveRelease(bg, app.ID); err != nil || live.Version != 1 {
+				t.Errorf("live release = %+v, %v; want v1", live, err)
+			}
+			if rel, err := f.store.ReleaseByVersion(bg, app.ID, 2); err != nil || rel.Status != store.StatusFailed {
+				t.Errorf("v2 = %+v, %v; want failed", rel, err)
+			}
+			if st, _ := f.sup.Status("hello"); st.State != StateRunning || st.Release != "v1" {
+				t.Errorf("status = %+v, want v1 running", st)
+			}
+		})
 	}
 }
 
