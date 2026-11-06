@@ -90,7 +90,7 @@ func main() {
 	}
 	_, oldroot := os.Stat("/oldroot")
 	fmt.Printf("oldroot_missing=%v\n", os.IsNotExist(oldroot))
-	if err := os.WriteFile("/written-by-app", []byte("hello"), 0o644); err != nil {
+	if err := os.WriteFile("/data/written-by-app", []byte("hello"), 0o644); err != nil {
 		fmt.Printf("write=%v\n", err)
 	}
 	if _, err := os.Stat("/proc/1/status"); err != nil {
@@ -142,6 +142,10 @@ func probeImage(t *testing.T) string {
 		rootfs := filepath.Join(dir, "rootfs")
 		_ = os.MkdirAll(filepath.Join(rootfs, "bin"), 0o755)
 		_ = os.MkdirAll(filepath.Join(rootfs, "etc"), 0o755)
+		// Open to everyone: as root the probe runs as nobody, which cannot
+		// write to the image's root-owned /.
+		_ = os.MkdirAll(filepath.Join(rootfs, "data"), 0o755)
+		_ = os.Chmod(filepath.Join(rootfs, "data"), 0o777)
 		_ = os.WriteFile(filepath.Join(rootfs, "etc", "passwd"), []byte("root:x:0:0::/:/bin/sh\napp:x:1234:5678::/srv:/bin/sh\n"), 0o644)
 		_ = os.WriteFile(filepath.Join(rootfs, "etc", "group"), []byte("root:x:0:\nstaff:x:4321:\n"), 0o644)
 		_ = os.WriteFile(filepath.Join(rootfs, "marker-from-image"), []byte("x"), 0o644)
@@ -250,7 +254,7 @@ func TestStartRunsTheAppInItsOwnWorld(t *testing.T) {
 	got := out.String()
 	for _, want := range []string{
 		"pid=1 ", "hostname=" + inst.ID[:12] + " ", "cwd=/srv ", fmt.Sprintf("port=%d ", port), "host=127.0.0.1 ", "greeting=hi",
-		"root=bin,dev,etc,marker-from-image,proc,srv,sys,tmp\n",
+		"root=bin,data,dev,etc,marker-from-image,proc,srv,sys,tmp\n",
 		"oldroot_missing=true", "listening",
 	} {
 		if !strings.Contains(got, want) {
@@ -280,11 +284,11 @@ func TestStartRunsTheAppInItsOwnWorld(t *testing.T) {
 	}
 
 	// The app's write landed in the upper layer, not in the image.
-	upper := filepath.Join(r.dir, inst.ID, "upper", "written-by-app")
+	upper := filepath.Join(r.dir, inst.ID, "upper", "data", "written-by-app")
 	if b, err := os.ReadFile(upper); err != nil || string(b) != "hello" {
 		t.Errorf("upper layer: %v %q", err, b)
 	}
-	if _, err := os.Stat(filepath.Join(probeImage(t), "rootfs", "written-by-app")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(probeImage(t), "rootfs", "data", "written-by-app")); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("the image was modified: %v", err)
 	}
 	// The host sees none of the container's mounts.
