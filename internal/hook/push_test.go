@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -212,6 +213,9 @@ func pushWithoutSideBand(t *testing.T, r *sshRig) (kill func()) {
 // hookPIDs lists the live processes running this test binary as a hook.
 func hookPIDs(t *testing.T) []string {
 	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("listing processes needs /proc")
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -271,5 +275,28 @@ func TestPusherGoneCancelsSilentDeploy(t *testing.T) {
 				t.Errorf("refs after the dead push: %q, err %v; want none", out, err)
 			}
 		})
+	}
+}
+
+// TestSilentDeployPushSucceeds is the other side of that cancellation. A
+// deploy this quiet looks just like a dead push from the hook's end, so only
+// the order of things on the SSH server tells them apart: git is still waiting
+// for its hook, and revoke must not fire until it stops.
+func TestSilentDeployPushSucceeds(t *testing.T) {
+	d := &fakeDeployer{delay: 200 * time.Millisecond}
+	r := startRig(t, d)
+	url := fmt.Sprintf("ssh://wherry@127.0.0.1:%s/hello", r.port)
+	for i := range 5 {
+		r.runGit(t, "commit", "--quiet", "--allow-empty", "-m", fmt.Sprintf("push %d", i))
+		want := r.runGit(t, "rev-parse", "HEAD")
+		r.runGit(t, "push", url, "main") // fails the test on a non-zero exit
+
+		out, err := exec.Command("git", "--git-dir="+r.repo, "rev-parse", "refs/heads/main").CombinedOutput()
+		if got := strings.TrimSpace(string(out)); err != nil || got != want {
+			t.Fatalf("push %d: main = %q, err %v; want %s", i, got, err, want)
+		}
+		if got := len(d.callList()); got != i+1 {
+			t.Fatalf("push %d: %d deploys, want %d", i, got, i+1)
+		}
 	}
 }

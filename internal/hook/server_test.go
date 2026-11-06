@@ -29,7 +29,8 @@ func TestMain(m *testing.M) {
 type deployCall struct{ app, sha, quarantine string }
 
 // fakeDeployer writes its lines and returns its error. In block mode it waits
-// for the context instead and reports the context's error on done.
+// for the context instead and reports the context's error on done. With a
+// delay it takes that long first, unless the context ends.
 type fakeDeployer struct {
 	mu    sync.Mutex
 	lines []string
@@ -38,6 +39,7 @@ type fakeDeployer struct {
 
 	block bool
 	done  chan error
+	delay time.Duration
 }
 
 func (d *fakeDeployer) set(lines []string, err error) {
@@ -58,6 +60,13 @@ func (d *fakeDeployer) Deploy(ctx context.Context, app, sha, quarantine string, 
 		<-ctx.Done()
 		d.done <- ctx.Err()
 		return ctx.Err()
+	}
+	if d.delay > 0 {
+		select {
+		case <-time.After(d.delay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return err
 }

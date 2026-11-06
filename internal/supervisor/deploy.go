@@ -55,7 +55,9 @@ func (a *actor) deploy(cmd deployCmd) (err error) {
 			return err
 		}
 		if cmd.manual {
-			a.retry, a.failures = nil, nil
+			// A pending retry stays until the swap clears it: if this restart
+			// fails, the app can still recover on its own.
+			a.failures = nil
 			_, _ = fmt.Fprintf(out, "-----> restarting %s\n", rel.Name())
 		}
 		return a.launchAndSwap(cmd, app, rel, out)
@@ -173,7 +175,10 @@ func (a *actor) launchAndSwap(cmd deployCmd, app store.App, rel store.Release, o
 	if err != nil {
 		return fail(err)
 	}
+	var before *Status // set when the status below replaces what was there
 	if a.current == nil || a.current.exited {
+		st, _ := a.status()
+		before = &st
 		a.setStatus(StateStarting, "starting "+rel.Name())
 	}
 	inst, err := a.start(ctx, rel, env, m, app.Host, out)
@@ -186,6 +191,9 @@ func (a *actor) launchAndSwap(cmd deployCmd, app store.App, rel store.Release, o
 		}
 	}
 	if err != nil {
+		if before != nil {
+			a.startFailed(*before, rel)
+		}
 		return fail(err)
 	}
 
@@ -245,6 +253,19 @@ func (a *actor) retire(old *running) {
 		}
 		s.log.Info("old instance stopped", "app", a.name, "id", old.inst.ID, "release", old.inst.Release, "drained", s.cfg.DrainGrace)
 	}()
+}
+
+// startFailed takes back the "starting" status of a start that came to
+// nothing. Crashed stays crashed, since no timer will ever correct it, and a
+// pending restart keeps its countdown. Anything else has nothing running and
+// nothing on the way. A scheduled restart passes through here too; failed
+// overwrites this as soon as it returns.
+func (a *actor) startFailed(before Status, rel store.Release) {
+	if before.State == StateCrashed || (before.State == StateRestarting && a.retry != nil) {
+		a.setStatus(before.State, before.Detail)
+		return
+	}
+	a.setStatus(StateStopped, rel.Name()+" failed")
 }
 
 // fail ends a release that will not go live. It uses a context that

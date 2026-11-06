@@ -193,7 +193,8 @@ func (s *Supervisor) Rollback(ctx context.Context, app string, version int, out 
 // Restart replaces the live release's instance with a fresh one of the same
 // release: no new row, no build. It also clears a crashed app's failure
 // history, which is how an operator ends a crash loop after fixing its
-// cause, and drops any restart the supervisor had scheduled itself.
+// cause. A restart the supervisor had scheduled itself is dropped once this
+// one succeeds, and survives if it fails.
 func (s *Supervisor) Restart(ctx context.Context, app string, out io.Writer) error {
 	return s.send(ctx, app, deployCmd{kind: kindRestart, manual: true}, out)
 }

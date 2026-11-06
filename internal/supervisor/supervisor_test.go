@@ -508,6 +508,9 @@ func TestUnhealthyInstanceIsStoppedAndFailed(t *testing.T) {
 	if app.LiveReleaseID != 0 {
 		t.Errorf("live release id = %d after a failed deploy", app.LiveReleaseID)
 	}
+	if st, _ := f.sup.Status("hello"); st.State != StateStopped || st.Detail != "v1 failed" {
+		t.Errorf("status = %+v, want stopped with v1 failed", st)
+	}
 }
 
 func TestExitedInstanceShowsItsOutput(t *testing.T) {
@@ -742,6 +745,46 @@ func TestPushGoneDuringHealthWait(t *testing.T) {
 				t.Errorf("status = %+v, want v1 running", st)
 			}
 		})
+	}
+}
+
+// TestFirstPushGoneDuringHealthWait is the same vanishing pusher with nothing
+// to fall back to. TestCancelledPushIsRejected cancels during the build, which
+// is too early: no status has been written yet.
+func TestFirstPushGoneDuringHealthWait(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: time.Minute})
+	f.runtime.listen = false
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out syncBuf
+	errs := make(chan error, 1)
+	go func() { errs <- f.sup.Deploy(ctx, "hello", sha, "", &out) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(out.String(), "waiting for v1 to listen") {
+		if time.Now().After(deadline) {
+			t.Fatalf("no health wait in:\n%s", out.String())
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if st, _ := f.sup.Status("hello"); st.State != StateStarting || st.Detail != "starting v1" {
+		t.Errorf("status during the health wait = %+v", st)
+	}
+	cancel()
+	select {
+	case err := <-errs:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Deploy did not return after cancel")
+	}
+
+	if got := f.runtime.stoppedIDs(); !slices.Equal(got, []string{"inst1"}) {
+		t.Errorf("stopped %v, want the new instance", got)
+	}
+	st, ok := f.sup.Status("hello")
+	if !ok || st.State != StateStopped || st.Detail != "v1 failed" || st.Release != "" || st.Instance != "" {
+		t.Errorf("status = %+v, want stopped with v1 failed and no instance", st)
 	}
 }
 
@@ -1145,6 +1188,123 @@ func TestManualRestartRevivesACrashedApp(t *testing.T) {
 	st = f.waitState(t, StateRunning, st.Instance)
 	if st.Restarts != 10 || f.clock.pending() {
 		t.Errorf("after reviving: %+v, pending %v", st, f.clock.pending())
+	}
+}
+
+// crashed deploys hello and crash-loops it until the supervisor gives up,
+// leaving new instances unable to pass a health check.
+func (f *fixture) crashed(t *testing.T) Status {
+	t.Helper()
+	if _, err := f.deploy(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	st := f.waitState(t, StateRunning, "")
+	for i := 0; i < 9; i++ {
+		f.runtime.exit(st.Instance, 1)
+		f.clock.fire(t)
+		st = f.waitState(t, StateRunning, st.Instance)
+	}
+	f.runtime.mu.Lock()
+	f.runtime.listen = false
+	f.runtime.mu.Unlock()
+	f.runtime.exit(st.Instance, 1)
+	return f.waitState(t, StateCrashed, "")
+}
+
+// Nothing is coming to correct a crashed app's status, so a deploy that fails
+// on the way has to leave it saying so. The route still 502s; "starting" would
+// hide a dead app.
+func TestFailedDeployKeepsACrashedStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		do   func(*fixture) error
+	}{
+		{"push", func(f *fixture) error {
+			_, err := f.deploy(context.Background(), "hello")
+			return err
+		}},
+		{"manual restart", func(f *fixture) error { return f.sup.Restart(context.Background(), "hello", io.Discard) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, Config{HealthTimeout: 800 * time.Millisecond})
+			before := f.crashed(t)
+			if err := tc.do(f); err == nil {
+				t.Fatal("deploy succeeded with no instance able to listen")
+			}
+			if st, _ := f.sup.Status("hello"); st != before {
+				t.Errorf("status = %+v, want it unchanged: %+v", st, before)
+			}
+			if f.clock.pending() {
+				t.Error("a failed deploy scheduled a restart of a crashed app")
+			}
+		})
+	}
+}
+
+func TestFailedPushKeepsAPendingRestartsStatus(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: 800 * time.Millisecond})
+	if _, err := f.deploy(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	st := f.waitState(t, StateRunning, "")
+	f.runtime.mu.Lock()
+	f.runtime.listen = false
+	f.runtime.mu.Unlock()
+	f.runtime.exit(st.Instance, 1)
+	before := f.waitState(t, StateRestarting, "")
+	if _, err := f.deploy(context.Background(), "hello"); err == nil {
+		t.Fatal("deploy succeeded with no instance able to listen")
+	}
+	if st, _ := f.sup.Status("hello"); st != before {
+		t.Errorf("status = %+v, want it unchanged: %+v", st, before)
+	}
+}
+
+// Trying to help must not leave an app worse off: the scheduled restart
+// survives a failed manual one, and it still runs.
+func TestFailedManualRestartDuringBackoff(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: 800 * time.Millisecond})
+	if _, err := f.deploy(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	st := f.waitState(t, StateRunning, "")
+	f.runtime.mu.Lock()
+	f.runtime.listen = false
+	f.runtime.mu.Unlock()
+	f.runtime.exit(st.Instance, 1)
+	before := f.waitState(t, StateRestarting, "")
+	if err := f.sup.Restart(context.Background(), "hello", io.Discard); err == nil {
+		t.Fatal("restart succeeded with no instance able to listen")
+	}
+	if st, _ := f.sup.Status("hello"); st != before {
+		t.Errorf("status = %+v, want it unchanged: %+v", st, before)
+	}
+	f.runtime.mu.Lock()
+	f.runtime.listen = true
+	f.runtime.mu.Unlock()
+	f.clock.fire(t)
+	f.waitState(t, StateRunning, st.Instance)
+}
+
+// The restart reconcile sends is neither a new release nor one that counts as
+// a failure, so nothing but the deploy itself can correct the status.
+func TestFailedRestartAtReconcile(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: 300 * time.Millisecond})
+	ctx := context.Background()
+	app, _ := f.store.GetApp(ctx, "hello")
+	rel, err := f.store.CreateRelease(ctx, app.ID, store.NewRelease{Image: "wherry/hello:1", ManifestJSON: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.SetLive(ctx, app.ID, rel.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.runtime.listen = false
+	if _, err := f.sup.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.waitState(t, StateStopped, "none"); st.Detail != "v1 failed" {
+		t.Errorf("status = %+v, want stopped with v1 failed", st)
 	}
 }
 
