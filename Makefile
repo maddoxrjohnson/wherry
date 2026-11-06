@@ -3,7 +3,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 
-.PHONY: build dist run test lint cover clean
+.PHONY: build dist run test e2e lint cover clean
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags '$(LDFLAGS)' -o bin/wherryd ./cmd/wherryd
@@ -31,9 +31,14 @@ run: build
 test:
 	go test -race -count=1 ./...
 
+# Black box, so the binaries are what is under test and -race would add nothing.
+e2e: build
+	go test -tags e2e -v -count=1 -timeout 15m ./e2e/
+
 lint:
 	go vet ./...
-	golangci-lint run ./...
+	go vet -tags e2e ./e2e/
+	golangci-lint run --build-tags=e2e ./...
 
 cover:
 	go test -count=1 -coverprofile=coverage.out ./...

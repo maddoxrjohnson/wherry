@@ -19,11 +19,15 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: vet
-        run: go vet ./...
+        run: go vet ./... && go vet -tags e2e ./e2e/
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13.2
+          args: --build-tags=e2e
       - name: test
         run: go test -race -count=1 ./...
       - name: build
         run: make build && ./bin/wherryd --version
+      - name: e2e
+        run: make e2e
+        timeout-minutes: 20

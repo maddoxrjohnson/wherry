@@ -288,6 +288,7 @@ Go 1.27 or newer and make.
 
     make build      # bin/wherryd (daemon) and bin/wherry (CLI)
     make test       # go test -race
+    make e2e        # deploy, restart, and recovery on real Docker; refuses to run beside other wherry containers
     make lint       # go vet and golangci-lint
     make run        # start the daemon locally with text logs
 
