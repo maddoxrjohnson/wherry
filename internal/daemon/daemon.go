@@ -98,8 +98,12 @@ func Run(ctx context.Context, cfg config.Config, version string, log *slog.Logge
 
 	// Routes live in memory, so they are rebuilt from what is running
 	// before any listener opens; a daemon restart is then invisible from
-	// outside. An unreachable Docker makes this a warning: the daemon still
-	// starts, and the next deploy says what is wrong.
+	// outside. A runtime that refuses connections gets about half a minute,
+	// and after that this is a warning: the daemon still starts, and the
+	// next deploy says what is wrong.
+	if err := waitForRuntime(ctx, drt, runtimeWaits, log); err != nil {
+		return nil // stopped before it started; nothing is open yet
+	}
 	if rep, err := sup.Reconcile(ctx); err != nil {
 		log.Warn("reconcile", "err", err, "partial", rep.String())
 	}
@@ -216,6 +220,40 @@ func (l *listeners) closeAll() {
 	for _, ln := range *l {
 		_ = ln.Close()
 	}
+}
+
+// runtimeWaits are the pauses between attempts to list instances at start.
+var runtimeWaits = []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second}
+
+// waitForRuntime returns once rt can list its instances or after the last
+// of waits, and with ctx's error if ctx ends first. Reconcile looks only
+// once, and if it cannot list, every app stays without a route until its
+// next deploy. The wait has to come before the listeners open: a reconcile
+// that runs during a push would stop the push's new instance as an orphan
+// and mark its release failed. Each attempt gets its own timeout, so a
+// socket that accepts and never answers cannot hold the wait; Reconcile's
+// own List after it is still unbounded.
+func waitForRuntime(ctx context.Context, rt interface {
+	List(context.Context) ([]runtime.Instance, error)
+}, waits []time.Duration, log *slog.Logger) error {
+	for _, d := range waits {
+		lctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		_, err := rt.List(lctx)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		log.Warn("runtime not answering; waiting before reconcile", "in", d.String(), "err", err)
+		select {
+		case <-time.After(d):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return nil
 }
 
 // newRuntime picks the runtime the configuration asks for. Both build with

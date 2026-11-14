@@ -18,6 +18,7 @@ import (
 	"github.com/maddoxrjohnson/wherry/internal/config"
 	"github.com/maddoxrjohnson/wherry/internal/metrics"
 	"github.com/maddoxrjohnson/wherry/internal/router"
+	"github.com/maddoxrjohnson/wherry/internal/runtime"
 	"github.com/maddoxrjohnson/wherry/internal/web"
 )
 
@@ -47,6 +48,11 @@ func TestRunStartsAndStops(t *testing.T) {
 	if _, err := os.Stat("/usr/bin/git"); err != nil {
 		t.Skip("git not installed")
 	}
+	// Without Docker the start would wait out the real schedule. Changing a
+	// package var keeps this test serial: no t.Parallel.
+	saved := runtimeWaits
+	runtimeWaits = []time.Duration{10 * time.Millisecond}
+	t.Cleanup(func() { runtimeWaits = saved })
 	cfg := config.Default()
 	cfg.DataDir = filepath.Join(t.TempDir(), "d") // short: the hook socket path has a limit
 	cfg.SSHAddr, cfg.HTTPAddr, cfg.InternalAddr = "127.0.0.1:0", "127.0.0.1:0", "127.0.0.1:0"
@@ -187,4 +193,58 @@ func TestNoPublicRouteWithoutAHost(t *testing.T) {
 	if _, ok := rt.Get(""); ok {
 		t.Error("an empty dashboard host made a route")
 	}
+}
+
+// flakyLister fails its first fails calls to List.
+type flakyLister struct {
+	fails, calls int
+}
+
+func (l *flakyLister) List(context.Context) ([]runtime.Instance, error) {
+	l.calls++
+	if l.calls <= l.fails {
+		return nil, errors.New("cannot connect to the docker daemon")
+	}
+	return nil, nil
+}
+
+func TestWaitForRuntime(t *testing.T) {
+	const step = 20 * time.Millisecond
+	waits := []time.Duration{step, step, step}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		name  string
+		fails int
+		calls int
+	}{
+		{"answers at once", 0, 1},
+		{"answers on the third try", 2, 3},
+		// Every wait used; reconcile makes the last attempt and reports it.
+		{"never answers", 99, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			l := &flakyLister{fails: tc.fails}
+			start := time.Now()
+			if err := waitForRuntime(context.Background(), l, waits, log); err != nil {
+				t.Fatal(err)
+			}
+			if l.calls != tc.calls {
+				t.Errorf("List called %d times, want %d", l.calls, tc.calls)
+			}
+			// One wait follows each failed attempt.
+			if waited, want := time.Since(start), time.Duration(min(tc.fails, len(waits)))*step; waited < want {
+				t.Errorf("returned after %s, want at least %s", waited, want)
+			}
+		})
+	}
+	t.Run("cancelled", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+		l := &flakyLister{fails: 99}
+		start := time.Now()
+		err := waitForRuntime(ctx, l, []time.Duration{time.Hour}, log)
+		if !errors.Is(err, context.Canceled) || time.Since(start) > time.Second || l.calls != 1 {
+			t.Errorf("returned %v after %s and %d calls, want context.Canceled at once after 1", err, time.Since(start), l.calls)
+		}
+	})
 }
