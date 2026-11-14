@@ -8,7 +8,7 @@ dropping requests. It is one Go daemon and a CLI, with SQLite for state. Docker 
 and either Docker or a container runtime I wrote myself from namespaces, cgroups, and overlayfs runs
 them.
 
-![A terminal session: git push builds the app and it goes live, then a second push serves the new version](demo/wherry.svg)
+![A terminal session: git push builds the app and it goes live, a second push serves v2, a push that crashes on start is rejected while v2 keeps serving, and a rollback brings v1 back](demo/wherry.svg)
 
 That is a real session against a daemon on my machine, with pauses over 1.5 seconds cut. The script
 is `demo/demo.sh` and the recording is `demo/wherry.cast`.
@@ -295,6 +295,8 @@ with the admin token, see the apps, and open one for its instance, releases, con
 (masked until revealed), build logs, and a live log view. It is server-rendered
 `html/template` with a few dozen lines of JavaScript for the log stream and the reveal
 buttons, and it is read-only: changes go through the CLI.
+
+![The dashboard's page for one app: its running instance, five releases including a failed push and a rollback, two masked config vars, and a live log view with stderr lines in red](demo/dashboard.png)
 
 Set `WHERRY_DASHBOARD_HOST` to a bare hostname and the router serves the dashboard there too,
 so I can use `wherry.dev` with apps at `<app>.apps.wherry.dev`. It needs `WHERRY_HTTPS_ADDR`,

@@ -15,7 +15,7 @@ cp -r "$root/examples/hello-go/." "$work"
 cd "$work"
 
 PATH=$root/bin:$PATH
-GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR'
+: "${GIT_SSH_COMMAND:=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR}"
 export PATH GIT_SSH_COMMAND
 
 git init -q -b main
@@ -31,14 +31,28 @@ run() {
   done
   printf '\n'
   sleep 0.3
-  bash -c "$1"
+  bash -c "$1" || true
   sleep 1
 }
 
+app=http://hello.localhost:8080/
+
+# Deploy. The filter drops Docker's per-step layer lines and keeps the steps.
 run 'wherry apps:create hello'
-run 'git push wherry main'
-run 'curl http://hello.localhost:8080/'
-sed -i 's/v1/v2/' main.go
-run 'git commit -qam "say v2"'
-run 'git push wherry main 2>&1 | tail -n 6'
-run 'curl http://hello.localhost:8080/'
+run "git push wherry main 2>&1 | grep -v ' --->'"
+run "curl $app"
+
+# Change it and push again; the new release replaces the old one.
+run "sed -i 's/v1/v2/' main.go && git commit -qam 'say v2'"
+run 'git push wherry main 2>&1 | tail -n 4'
+run "curl $app"
+
+# A release that dies on start is rejected, and v2 keeps serving.
+run "echo 'func init() { panic(\"no DATABASE_URL\") }' >> main.go"
+run "git commit -qam 'read the database' && git push wherry main 2>&1 | tail -n 8"
+run "curl $app"
+
+# Go back to any earlier release.
+run 'wherry releases hello'
+run 'wherry releases:rollback hello v1'
+run "curl $app"
