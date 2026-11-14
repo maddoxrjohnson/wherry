@@ -51,9 +51,17 @@ func (c *fakeClock) advance(d time.Duration) {
 // it, and returns the duration that was asked for.
 func (c *fakeClock) fire(t *testing.T) time.Duration {
 	t.Helper()
+	return c.fireLate(t, 0)
+}
+
+// fireLate is fire with the clock moved extra further first, as if the
+// timer had gone off that much late. Whatever came before the After call
+// keeps its time; whatever follows the firing gets the new one.
+func (c *fakeClock) fireLate(t *testing.T, extra time.Duration) time.Duration {
+	t.Helper()
 	select {
 	case tm := <-c.timers:
-		c.advance(tm.d)
+		c.advance(tm.d + extra)
 		tm.ch <- c.Now()
 		return tm.d
 	case <-time.After(5 * time.Second):

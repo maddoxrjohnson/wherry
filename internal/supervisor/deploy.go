@@ -57,7 +57,7 @@ func (a *actor) deploy(cmd deployCmd) (err error) {
 		if cmd.manual {
 			// A pending retry stays until the swap clears it: if this restart
 			// fails, the app can still recover on its own.
-			a.failures = nil
+			a.failures, a.streak = nil, 0
 			_, _ = fmt.Fprintf(out, "-----> restarting %s\n", rel.Name())
 		}
 		return a.launchAndSwap(cmd, app, rel, out)
@@ -199,13 +199,14 @@ func (a *actor) launchAndSwap(cmd deployCmd, app store.App, rel store.Release, o
 
 	// The swap. Nothing after it may fail the push: the new release is
 	// serving, and git must record the commit it came from. A pending
-	// restart is for the instance just replaced, so it is dropped; a new
-	// release starts with a clean failure history.
+	// restart is for the instance just replaced, so it is dropped, and a
+	// run of failed restarts is over; a new release starts with a clean
+	// failure history.
 	swapStart := time.Now()
 	old := a.current
 	s.router.Set(app.Host, a.name, inst.Addr)
 	a.current = &running{inst: inst, grace: time.Duration(m.Process.Grace)}
-	a.retry = nil
+	a.retry, a.streak = nil, 0
 	if cmd.kind == kindRestart {
 		a.restarts++
 		if !cmd.manual {

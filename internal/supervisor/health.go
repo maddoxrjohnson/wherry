@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"time"
 
 	"github.com/maddoxrjohnson/wherry/internal/manifest"
@@ -32,9 +33,25 @@ const (
 // start runs the release with env as its environment and m's limits, and
 // waits for it to pass m's health check. host is the app's hostname, sent
 // as the Host header of an HTTP probe. On any failure the instance is
-// stopped and removed, so a rejected push leaves nothing running.
-func (a *actor) start(ctx context.Context, rel store.Release, env map[string]string, m manifest.Manifest, host string, out io.Writer) (runtime.Instance, error) {
+// stopped and removed, so a rejected push leaves nothing running. A panic
+// is one more failure: deploy's own recover comes too late to end the
+// release row or take back the "starting" status, and it never knew the
+// instance.
+func (a *actor) start(ctx context.Context, rel store.Release, env map[string]string, m manifest.Manifest, host string, out io.Writer) (inst runtime.Instance, err error) {
 	s := a.sup
+	defer func() {
+		r := recover()
+		if r == nil {
+			return
+		}
+		s.log.Error("start panic", "app", a.name, "release", rel.Name(), "panic", r, "stack", string(debug.Stack()))
+		if inst.ID != "" {
+			if serr := s.runtime.Stop(context.WithoutCancel(ctx), inst.ID, time.Duration(m.Process.Grace)); serr != nil {
+				s.log.Warn("stop failed instance", "app", a.name, "id", inst.ID, "err", serr)
+			}
+		}
+		inst, err = runtime.Instance{}, fmt.Errorf("internal error: %v", r)
+	}()
 	port, err := runtime.FreePort()
 	if err != nil {
 		return runtime.Instance{}, err
@@ -44,7 +61,7 @@ func (a *actor) start(ctx context.Context, rel store.Release, env map[string]str
 		appPort = port
 	}
 	startAt := time.Now()
-	inst, err := s.runtime.Start(ctx, runtime.Spec{
+	inst, err = s.runtime.Start(ctx, runtime.Spec{
 		App: a.name, Release: rel.Name(), Image: rel.Image, Env: env,
 		HostPort: port, ContainerPort: appPort,
 		Memory: int64(m.Process.Memory), CPU: float64(m.Process.CPU),

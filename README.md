@@ -183,7 +183,8 @@ once the stop begins.
 A watcher per instance waits for its process to exit. An exit the daemon did not ask for
 schedules a restart of the same release after 1 s, then 2, 4, 8, 16, 32, and 60 s for later
 failures within a ten-minute window; the tenth failure in the window marks the app
-`crashed` and nothing more is tried until a restart is asked for. The route stays where it
+`crashed` and nothing more is tried until a restart is asked for. Ten automatic restarts in
+a row that never come up do the same, however long each one took. The route stays where it
 was, so requests to a crashed app get a 502 with a request id rather than a 404.
 `examples/crasher` exits two seconds after it starts when `CRASH_AFTER=2s` is set, and
 `wherry ps crasher` shows the state, the restart count, and when the next attempt is due.

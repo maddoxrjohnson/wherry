@@ -17,7 +17,9 @@ import (
 // Crash handling: an instance that exits on its own is restarted after
 // backoff(n) for its n-th failure inside crashWindow; the crashThreshold-th
 // failure marks the app crashed and nothing more is tried until a restart
-// is asked for.
+// is asked for. Restarts that fail in a row count on their own as well,
+// since each can take longer than crashWindow/crashThreshold and the window
+// would then never fill.
 const (
 	crashWindow    = 10 * time.Minute
 	crashThreshold = 10
@@ -48,6 +50,7 @@ type actor struct {
 	current  *running         // what the router points at, if this daemon started it
 	retry    <-chan time.Time // the scheduled restart, nil when none
 	failures []time.Time      // unexpected exits inside crashWindow
+	streak   int              // automatic restarts in a row that did not come up; the swap clears it
 	restarts int              // automatic restarts since the daemon started
 
 	mu   sync.Mutex
@@ -115,7 +118,13 @@ func (a *actor) run(ctx context.Context) {
 				continue
 			}
 			if cmd.kind == kindRecover {
-				a.restart(cmd.ctx)
+				// Reconcile found nothing running, but a deploy may have
+				// landed since. Restarting a healthy instance would count as
+				// a crash restart, and one that has exited already belongs to
+				// the crash handling: a retry is pending or it is crashed.
+				if a.current == nil {
+					a.restart(cmd.ctx)
+				}
 				cmd.reply <- nil
 				continue
 			}
@@ -247,6 +256,12 @@ func (a *actor) failed(why string) {
 		a.setStatus(StateCrashed, fmt.Sprintf("%s; %d failures in %s, giving up", why, n, crashWindow))
 		return
 	}
+	if a.streak >= crashThreshold {
+		s.log.Error("app crashed; not restarting until asked", "app", a.name, "failed_restarts", a.streak, "last", why)
+		a.setStatus(StateCrashed, fmt.Sprintf("%s; %d restarts in a row failed, giving up", why, a.streak))
+		return
+	}
+	n = max(n, a.streak)
 	wait := backoff(n)
 	s.log.Warn("scheduling restart", "app", a.name, "reason", why, "attempt", n, "in", wait)
 	a.setStatus(StateRestarting, fmt.Sprintf("%s; restart %d in %s", why, n, wait))
@@ -261,6 +276,7 @@ func (a *actor) restart(ctx context.Context) {
 	defer a.busy.Store(false)
 	if err := a.counted(deployCmd{ctx: ctx, kind: kindRestart, out: io.Discard}); err != nil {
 		a.sup.log.Warn("restart failed", "app", a.name, "err", err)
+		a.streak++
 		a.failed("restart failed: " + err.Error())
 	}
 }

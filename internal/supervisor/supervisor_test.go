@@ -1290,21 +1290,7 @@ func TestFailedManualRestartDuringBackoff(t *testing.T) {
 // failed restart, so an outage at daemon start ends without an operator.
 func TestFailedRestartAtReconcileIsRetried(t *testing.T) {
 	f := newFixture(t, Config{HealthTimeout: 300 * time.Millisecond})
-	ctx := context.Background()
-	app, _ := f.store.GetApp(ctx, "hello")
-	rel, err := f.store.CreateRelease(ctx, app.ID, store.NewRelease{Image: "wherry/hello:1", ManifestJSON: "{}"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := f.store.SetLive(ctx, app.ID, rel.ID); err != nil {
-		t.Fatal(err)
-	}
-	f.runtime.mu.Lock()
-	f.runtime.listen = false
-	f.runtime.mu.Unlock()
-	if _, err := f.sup.Reconcile(ctx); err != nil {
-		t.Fatal(err)
-	}
+	f.reconcileDeadRelease(t)
 	if d := f.clock.fire(t); d != time.Second {
 		t.Errorf("first wait %s, want 1s", d)
 	}
@@ -1332,6 +1318,265 @@ func TestFailedRestartAtReconcileIsRetried(t *testing.T) {
 	if addr, ok := f.router.Get("hello.localhost"); !ok || addr == "" {
 		t.Error("no route after the retry")
 	}
+}
+
+// reconcileDeadRelease makes v1 live with nothing running, makes new
+// instances never listen, and reconciles, so the restart reconcile asks for
+// fails and its retry is pending.
+func (f *fixture) reconcileDeadRelease(t *testing.T) {
+	t.Helper()
+	ctx := context.Background()
+	app, _ := f.store.GetApp(ctx, "hello")
+	rel, err := f.store.CreateRelease(ctx, app.ID, store.NewRelease{Image: "wherry/hello:1", ManifestJSON: "{}"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.SetLive(ctx, app.ID, rel.ID); err != nil {
+		t.Fatal(err)
+	}
+	f.runtime.mu.Lock()
+	f.runtime.listen = false
+	f.runtime.mu.Unlock()
+	if _, err := f.sup.Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (f *fixture) startedCount() int {
+	f.runtime.mu.Lock()
+	defer f.runtime.mu.Unlock()
+	return len(f.runtime.started)
+}
+
+// Restarts that each take longer than crashWindow/crashThreshold never fill
+// the window. A run of them still ends crashed, with nothing left scheduled.
+func TestSlowFailedRestartsStillGiveUp(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: 100 * time.Millisecond})
+	f.reconcileDeadRelease(t)
+	var waits []time.Duration
+	for i := 1; i < crashThreshold; i++ {
+		f.waitScheduled(t)
+		waits = append(waits, f.clock.fireLate(t, 2*time.Minute))
+	}
+	// The window never holds more than five of these; the backoff follows
+	// the run instead.
+	want := []time.Duration{time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 60 * time.Second, 60 * time.Second, 60 * time.Second}
+	if fmt.Sprint(waits) != fmt.Sprint(want) {
+		t.Errorf("backoff waits = %v, want %v", waits, want)
+	}
+	st := f.waitState(t, StateCrashed, "-") // nothing ever came up, so there is no instance
+	if !strings.Contains(st.Detail, "10 restarts in a row failed") {
+		t.Errorf("crashed detail = %q", st.Detail)
+	}
+	if f.clock.pending() {
+		t.Error("a restart is still scheduled for a crashed app")
+	}
+	if n := f.startedCount(); n != crashThreshold {
+		t.Errorf("%d instances started, want %d", n, crashThreshold)
+	}
+}
+
+// streakOfNine leaves nine failed restarts in a row behind, a tenth
+// scheduled, and new instances still not listening.
+func (f *fixture) streakOfNine(t *testing.T) {
+	t.Helper()
+	f.reconcileDeadRelease(t)
+	for i := 1; i < crashThreshold-1; i++ {
+		f.waitScheduled(t)
+		f.clock.fireLate(t, 2*time.Minute)
+	}
+	f.waitScheduled(t)
+}
+
+// waitScheduled waits until a restart has asked the clock to wait, so the
+// attempt's own health timeout is not spent from fire's budget.
+func (f *fixture) waitScheduled(t *testing.T) {
+	t.Helper()
+	waitFor(t, "a restart to be scheduled", func() bool { return f.clock.pending() }, func() string {
+		st, _ := f.sup.Status("hello")
+		return fmt.Sprintf("%+v", st)
+	})
+}
+
+// waitFor polls cond for up to ten seconds; state, when given, says what
+// was seen instead.
+func waitFor(t *testing.T, what string, cond func() bool, state ...func() string) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); !cond(); {
+		if time.Now().After(deadline) {
+			if len(state) > 0 {
+				t.Fatalf("timed out waiting for %s; status %s", what, state[0]())
+			}
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// A restart that comes up ends the run: the next crash, much later, is a
+// first failure again, not the tenth.
+func TestRecoveryEndsARunOfFailedRestarts(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: 100 * time.Millisecond})
+	f.streakOfNine(t)
+	f.runtime.mu.Lock()
+	f.runtime.listen = true
+	f.runtime.mu.Unlock()
+	f.clock.fire(t)
+	st := f.waitState(t, StateRunning, "")
+	f.clock.advance(11 * time.Minute)
+	f.runtime.exit(st.Instance, 1)
+	if d := f.clock.fire(t); d != time.Second {
+		t.Errorf("wait after a recovery = %s, want 1s", d)
+	}
+	f.waitState(t, StateRunning, st.Instance)
+}
+
+// An operator's restart starts the count over even when it fails, so the
+// retry already scheduled is a first attempt, not the one that gives up.
+func TestFailedManualRestartResetsTheRun(t *testing.T) {
+	f := newFixture(t, Config{HealthTimeout: 100 * time.Millisecond})
+	f.streakOfNine(t)
+	if err := f.sup.Restart(context.Background(), "hello", io.Discard); err == nil {
+		t.Fatal("restart succeeded with no instance able to listen")
+	}
+	f.clock.fire(t)
+	var st Status
+	waitFor(t, "the scheduled restart to fail", func() bool {
+		st, _ = f.sup.Status("hello")
+		return st.State == StateCrashed || strings.Contains(st.Detail, "restart 1 in 1s")
+	})
+	if st.State != StateRestarting {
+		t.Errorf("status = %+v, want a first retry", st)
+	}
+}
+
+// A recover that arrives after something was deployed must not start a
+// second instance next to it.
+func TestRecoverLeavesALiveInstanceAlone(t *testing.T) {
+	f := newFixture(t, Config{})
+	if _, err := f.deploy(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.sup.send(context.Background(), "hello", deployCmd{kind: kindRecover}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := f.sup.Status("hello"); st.State != StateRunning || st.Instance != "inst1" || st.Restarts != 0 {
+		t.Errorf("status = %+v, want inst1 untouched", st)
+	}
+	if n := f.startedCount(); n != 1 {
+		t.Errorf("%d instances started, want 1", n)
+	}
+}
+
+// The retry a failed recover schedules belongs to the dead release. A
+// destroy or a push that lands first makes it moot, and when its timer goes
+// off nothing more is started.
+func TestPendingRecoverRetryIsDropped(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		do    func(*fixture) error
+		state string // ok false when "": the actor is gone
+		inst  string
+	}{
+		{"destroy", func(f *fixture) error { return f.sup.Destroy(context.Background(), "hello") }, "", ""},
+		{"push", func(f *fixture) error {
+			f.runtime.mu.Lock()
+			f.runtime.listen = true
+			f.runtime.mu.Unlock()
+			_, err := f.deploy(context.Background(), "hello")
+			return err
+		}, StateRunning, "inst2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t, Config{HealthTimeout: 300 * time.Millisecond})
+			f.reconcileDeadRelease(t)
+			f.waitState(t, StateRestarting, "-")
+			if err := tc.do(f); err != nil {
+				t.Fatal(err)
+			}
+			before := f.startedCount()
+			f.clock.fire(t) // the failed recover's retry, which nothing reads now
+			time.Sleep(50 * time.Millisecond)
+			if n := f.startedCount(); n != before {
+				t.Errorf("%d instances started after the timer, want %d", n, before)
+			}
+			st, ok := f.sup.Status("hello")
+			for deadline := time.Now().Add(5 * time.Second); ok && tc.state == "" && time.Now().Before(deadline); {
+				time.Sleep(5 * time.Millisecond) // the actor forgets itself just after Destroy returns
+				st, ok = f.sup.Status("hello")
+			}
+			if ok != (tc.state != "") || st.State != tc.state || st.Instance != tc.inst || st.Restarts != 0 {
+				t.Errorf("status = %+v (ok %v), want state %q instance %q", st, ok, tc.state, tc.inst)
+			}
+		})
+	}
+}
+
+// A panic while starting is a failed start: the instance it made is stopped,
+// the release row ends failed, the status is not left "starting", and a
+// scheduled restart that panics is retried like any other.
+func TestPanicInStartIsAFailedStart(t *testing.T) {
+	f := newFixture(t, Config{})
+	m := &panicOnStart{fakeMetrics: newFakeMetrics()}
+	f.sup.obs = m
+	ctx := context.Background()
+	app, _ := f.store.GetApp(ctx, "hello")
+
+	m.on.Store(true)
+	if _, err := f.deploy(ctx, "hello"); err == nil || !strings.Contains(err.Error(), "internal error") {
+		t.Fatalf("deploy err = %v, want an internal error", err)
+	}
+	if got := f.runtime.stoppedIDs(); len(got) != 1 || got[0] != "inst1" {
+		t.Errorf("stopped %v, want the instance that was started", got)
+	}
+	if st, _ := f.sup.Status("hello"); st.State != StateStopped {
+		t.Errorf("status = %+v, want stopped", st)
+	}
+	if rels, _ := f.store.ListReleases(ctx, app.ID); len(rels) != 1 || rels[0].Status != store.StatusFailed {
+		t.Errorf("releases = %+v, want v1 failed", rels)
+	}
+	if _, ok := f.router.Get("hello.localhost"); ok {
+		t.Error("route set by a start that panicked")
+	}
+
+	m.on.Store(false)
+	if _, err := f.deploy(ctx, "hello"); err != nil {
+		t.Fatalf("deploy after a panic: %v", err)
+	}
+	st := f.waitState(t, StateRunning, "")
+	m.on.Store(true)
+	f.runtime.exit(st.Instance, 1)
+	f.clock.fire(t)
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(st.Detail, "restart failed: internal error") {
+		if time.Now().After(deadline) {
+			t.Fatalf("status = %+v, want a failed restart", st)
+		}
+		time.Sleep(5 * time.Millisecond)
+		st, _ = f.sup.Status("hello")
+	}
+	if !slices.Contains(f.runtime.stoppedIDs(), "inst3") {
+		t.Errorf("stopped %v, want the panicking restart's inst3", f.runtime.stoppedIDs())
+	}
+	m.on.Store(false)
+	f.clock.fire(t)
+	if st := f.waitState(t, StateRunning, st.Instance); st.Restarts != 1 {
+		t.Errorf("status = %+v, want running after one restart", st)
+	}
+}
+
+// panicOnStart panics where start reports its first stage, after the
+// instance exists, while on is set.
+type panicOnStart struct {
+	*fakeMetrics
+	on atomic.Bool
+}
+
+func (m *panicOnStart) Stage(stage string, d time.Duration) {
+	if stage == StageStart && m.on.Load() {
+		panic("boom")
+	}
+	m.fakeMetrics.Stage(stage, d)
 }
 
 func TestRestartNeedsALiveRelease(t *testing.T) {
